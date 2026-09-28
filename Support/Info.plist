@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Marina</string>
+	<key>CFBundleExecutable</key>
+	<string>Marina</string>
+	<key>CFBundleIconFile</key>
+	<string>Marina</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.fherwig.marina</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Marina</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.1</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Marina is a file manager — it needs access to your Desktop to list, open, move and trash the files there.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Marina is a file manager — it needs access to your Documents to list, open, move and trash the files there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Marina is a file manager — it needs access to your Downloads to list, open, move and trash the files there.</string>
+	<key>NSFileProviderDomainUsageDescription</key>
+	<string>Marina is a file manager — it needs access to iCloud Drive and other synced folders to browse and manage the files in them.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Falk Herwig</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Marina is a file manager — it needs access to network volumes to browse and manage the files on them.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Marina is a file manager — it needs access to removable volumes to browse and manage the files on them.</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>
