@@ -1,0 +1,104 @@
+/* Native macOS reading: the system font, the system's own light and dark,
+   nothing that looks like a web page dropped into a Mac window. */
+:root {
+  --bg: #ffffff; --fg: #1d1d1f; --dim: #6e6e73; --line: #d8d8dc;
+  --code-bg: #f5f5f7; --link: #0a64d8; --gutter: #a1a1a6;
+  /* token colours: Xcode's light theme, near enough */
+  --tk-comment: #6c7986; --tk-keyword: #9b2393; --tk-string: #c41a16;
+  --tk-number: #1c00cf; --tk-function: #326d74; --tk-type: #0b4f79;
+  --tk-builtin: #6c36a9; --tk-operator: #1d1d1f; --tk-punct: #6e6e73;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e; --fg: #e6e6e6; --dim: #98989d; --line: #3a3a3c;
+    --code-bg: #262628; --link: #5ea2ff; --gutter: #636366;
+    --tk-comment: #7f8c98; --tk-keyword: #ff7ab2; --tk-string: #ff8170;
+    --tk-number: #d9c97c; --tk-function: #67b7a4; --tk-type: #5dd8ff;
+    --tk-builtin: #b281eb; --tk-operator: #e6e6e6; --tk-punct: #98989d;
+  }
+}
+
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, sans-serif; }
+#doc { padding: 18px 22px 40px; }
+
+/* ── Markdown ────────────────────────────────────────────────────────── */
+.markdown { max-width: 52em; overflow-wrap: anywhere; }
+.markdown h1, .markdown h2, .markdown h3,
+.markdown h4, .markdown h5, .markdown h6 { line-height: 1.25; margin: 1.3em 0 .45em; }
+.markdown h1 { font-size: 1.7em; }
+.markdown h2 { font-size: 1.35em; padding-bottom: .2em; border-bottom: 1px solid var(--line); }
+.markdown h3 { font-size: 1.15em; }
+.markdown h4, .markdown h5, .markdown h6 { font-size: 1em; }
+.markdown > :first-child { margin-top: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown table,
+.markdown pre, .markdown blockquote { margin: 0 0 .85em; }
+.markdown ul, .markdown ol { padding-left: 1.6em; }
+.markdown li + li { margin-top: .2em; }
+.markdown a { color: var(--link); text-decoration: none; }
+.markdown a:hover { text-decoration: underline; }
+.markdown img { max-width: 100%; height: auto; border-radius: 4px; }
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 1.4em 0; }
+.markdown blockquote { padding: 0 1em; color: var(--dim); border-left: 3px solid var(--line); }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+.markdown th { font-weight: 600; }
+.markdown code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+                 background: var(--code-bg); padding: .1em .3em; border-radius: 3px; }
+.markdown pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown .katex-display { margin: .9em 0; overflow-x: auto; overflow-y: hidden; }
+
+/* Maths in the prose's own family. KaTeX sets formulas in Computer Modern at
+   121%, which beside San Francisco reads as a pasted-in different document.
+   Letters and digits now come from the system font — italic for variables,
+   upright for \mathrm and numbers — like Beamer's default sans maths, at near
+   text size. Integrals, sums, big brackets and \mathcal still use KaTeX's
+   fonts: its layout is measured on them and does not survive a swap there.
+   Chosen by snapshotting four variants side by side (2026-10-05). */
+.markdown .katex { font-size: 1.02em; }
+.markdown .katex .mathnormal,
+.markdown .katex .mathit { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-style: italic; }
+.markdown .katex .mathrm,
+.markdown .katex .mord.text,
+.markdown .katex .mop { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+
+/* ── Source ──────────────────────────────────────────────────────────── */
+/* Gutter and code are two <pre>s side by side with the same font and line
+   height, so the numbers line up without wrapping each line in its own element
+   — which would break any token, like a block comment, that spans lines. */
+.source { padding: 0 !important; }
+.code { display: flex; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.code pre { margin: 0; padding: 12px 0; font: inherit; white-space: pre; }
+.gutter { flex: none; text-align: right; color: var(--gutter); padding: 12px 10px 12px 14px !important;
+          border-right: 1px solid var(--line); user-select: none; -webkit-user-select: none; }
+.src { flex: 1; padding-left: 12px !important; padding-right: 14px !important; overflow-x: auto; }
+
+/* ── Prism tokens, in code files and in fenced blocks ────────────────── */
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--tk-comment); font-style: italic; }
+.token.keyword, .token.atrule, .token.important, .token.selector { color: var(--tk-keyword); }
+.token.string, .token.char, .token.attr-value, .token.regex, .token.inserted { color: var(--tk-string); }
+.token.number, .token.boolean, .token.constant, .token.symbol { color: var(--tk-number); }
+.token.function { color: var(--tk-function); }
+.token.class-name, .token.tag, .token.property, .token.attr-name { color: var(--tk-type); }
+.token.builtin, .token.variable { color: var(--tk-builtin); }
+.token.operator, .token.entity, .token.url { color: var(--tk-operator); }
+.token.punctuation { color: var(--tk-punct); }
+.token.deleted { color: var(--tk-string); }
+.token.title, .token.bold { font-weight: 700; }
+.token.italic { font-style: italic; }
+
+/* ── Spreadsheets ────────────────────────────────────────────────────── */
+.sheet { padding: 0 !important; }
+.sheet .note, .note { color: var(--dim); font-size: 12px; margin: 10px 14px; }
+.tabs { position: sticky; top: 0; display: flex; gap: 2px; padding: 6px 10px 0;
+        background: var(--bg); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { font: 12px -apple-system, sans-serif; color: var(--dim); background: none;
+               border: 1px solid transparent; border-bottom: 0; border-radius: 5px 5px 0 0;
+               padding: 4px 10px; cursor: default; white-space: nowrap; }
+.tabs button.on { color: var(--fg); background: var(--code-bg); border-color: var(--line); }
+#sheet { overflow: auto; }
+#sheet table { border-collapse: collapse; font: 12px/1.4 -apple-system, sans-serif; margin: 8px 10px 30px; }
+#sheet td { border: 1px solid var(--line); padding: 2px 7px; white-space: nowrap; vertical-align: top; }
+#sheet td[data-t="n"] { text-align: right; font-variant-numeric: tabular-nums; }
+#sheet tr:first-child td { font-weight: 600; background: var(--code-bg); }
