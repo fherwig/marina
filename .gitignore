@@ -1,0 +1,8 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+.claude/settings.local.json
+.review/
+# the unannotated shots; make guide re-creates them
+docs/images/raw/

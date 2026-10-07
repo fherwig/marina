@@ -1,0 +1,37 @@
+#!/bin/sh
+# Every commit that changes Marina's code must say whether the README's
+# feature list was brought along — so the list a new user reads first cannot
+# quietly fall behind again, as it had by October 2026.
+#
+# Add ONE of these lines to the commit message:
+#     Features: updated      README.md is in this commit, list brought up to date
+#     Features: unchanged    checked — nothing here changes what Marina can do
+#
+# Enabled per clone with:   git config core.hooksPath Support/git-hooks
+# (make hooks does it). Bypass, knowingly, with git commit --no-verify.
+
+msg_file="$1"
+staged=$(git diff --cached --name-only)
+
+# only code that can change what Marina does; a version bump, docs or the
+# installer alone are not features
+echo "$staged" | grep -qE '^(Sources/|Support/Viewer/)' || exit 0
+
+decision=$(grep -iE '^Features:[[:space:]]*(updated|unchanged)[[:space:]]*$' "$msg_file" \
+           | head -1 | sed -E 's/^[Ff]eatures:[[:space:]]*//; s/[[:space:]]*$//' | tr 'A-Z' 'a-z')
+
+case "$decision" in
+  unchanged)
+    exit 0 ;;
+  updated)
+    if echo "$staged" | grep -qx 'README.md'; then exit 0; fi
+    echo "commit-msg: the message says 'Features: updated' but README.md is not in this commit." >&2
+    echo "            Stage it (git add README.md), or say 'Features: unchanged'." >&2
+    exit 1 ;;
+  *)
+    echo "commit-msg: this commit changes Marina's code. Check the feature list in README.md," >&2
+    echo "            then add one line to the commit message:" >&2
+    echo "                Features: updated     (and stage README.md)" >&2
+    echo "                Features: unchanged" >&2
+    exit 1 ;;
+esac
