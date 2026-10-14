@@ -434,7 +434,10 @@ struct FilePaneView: View {
     /// unit: the sidebar and the tab bar stay in charge while the user is
     /// arrowing through them (switching tabs rebuilds the panes below).
     private func claimFocus() {
-        guard !app.tabBarActive else { return }
+        // nor out of a terminal that was just handed the keyboard — going to a
+        // Claude session switches tabs and focuses its terminal, and this
+        // pane's delayed claim used to take the keyboard straight back
+        guard !app.tabBarActive, !tab.terminalHasFocus else { return }
         switch focus.wrappedValue {
         case .sidebar, .tabBar: return
         default: focus.wrappedValue = .pane(pane.id)

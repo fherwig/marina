@@ -8,6 +8,8 @@ struct ClaudeSession: Identifiable, Hashable {
     /// The tmux session it belongs to, or nil when it was started straight from
     /// a terminal window.
     let tmuxSession: String?
+    /// Its tmux pane ("%7"), so going to it lands on the right pane.
+    var tmuxPane: String? = nil
 
     var id: Int32 { pid }
     var isBare: Bool { tmuxSession == nil }
@@ -111,17 +113,21 @@ enum ClaudeSessionScan {
         for row in claudes {
             let path: String?
             let session: String?
+            let paneID: String?
             if let owner = pane[row.pid], let info = panes[owner] {
                 path = info.path
                 session = info.session
+                paneID = info.id
             } else {
                 path = cwds[row.pid]
                 session = nil
+                paneID = nil
             }
             guard let path, !path.isEmpty else { continue }
             found.append(ClaudeSession(pid: row.pid,
                                        directory: URL(fileURLWithPath: path).standardizedFileURL,
-                                       tmuxSession: session))
+                                       tmuxSession: session,
+                                       tmuxPane: paneID))
         }
 
         // One row per directory: two sessions in the same folder are still one
@@ -179,20 +185,69 @@ enum ClaudeSessionScan {
         return nil
     }
 
+    /// The processes a session is on screen through, as of now: for a bare
+    /// session its own ancestry, for a tmux one the ancestry of every client
+    /// attached to it. A Marina shell among them means a Marina tab shows it;
+    /// an app among them is the terminal it lives in. Read fresh rather than
+    /// kept from the snapshot — attaching is exactly what changes it.
+    static func hosts(of session: ClaudeSession) -> [Int32] {
+        var parents: [Int32: Int32] = [:]
+        for row in processTable() { parents[row.pid] = row.ppid }
+        guard let name = session.tmuxSession else { return ancestry(session.pid, parents: parents) }
+        return (tmuxClients()[name] ?? []).flatMap { ancestry($0, parents: parents) }
+    }
+
+    /// The process itself and its parents, up to (not including) launchd.
+    private static func ancestry(_ pid: Int32, parents: [Int32: Int32]) -> [Int32] {
+        var chain: [Int32] = []
+        var current = pid
+        for _ in 0..<64 {
+            chain.append(current)
+            guard let parent = parents[current], parent > 1 else { break }
+            current = parent
+        }
+        return chain
+    }
+
     // MARK: - tmux
 
-    private static func tmuxPanes() -> [Int32: (session: String, path: String)] {
-        guard let tmux = tmuxPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            return [:]
-        }
-        let out = capture(tmux, ["list-panes", "-a", "-F", "#{pane_pid}\t#{session_name}\t#{pane_current_path}"])
-        var panes: [Int32: (session: String, path: String)] = [:]
+    /// Run a tmux command (switch-client, detach-client, display-message)
+    /// and hand back what it printed.
+    @discardableResult
+    static func runTmux(_ args: [String]) -> String {
+        guard let tmux else { return "" }
+        return capture(tmux, args)
+    }
+
+    static var tmux: String? {
+        tmuxPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private static func tmuxPanes() -> [Int32: (session: String, path: String, id: String)] {
+        guard let tmux else { return [:] }
+        let out = capture(tmux, ["list-panes", "-a", "-F",
+                                 "#{pane_pid}\t#{session_name}\t#{pane_current_path}\t#{pane_id}"])
+        var panes: [Int32: (session: String, path: String, id: String)] = [:]
         for line in out.split(separator: "\n") {
             let f = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard f.count == 3, let pid = Int32(f[0]) else { continue }
-            panes[pid] = (session: String(f[1]), path: String(f[2]))
+            guard f.count == 4, let pid = Int32(f[0]) else { continue }
+            panes[pid] = (session: String(f[1]), path: String(f[2]), id: String(f[3]))
         }
         return panes
+    }
+
+    /// The pids of the clients attached to each session — each one is a
+    /// terminal somewhere showing it.
+    private static func tmuxClients() -> [String: [Int32]] {
+        guard let tmux else { return [:] }
+        let out = capture(tmux, ["list-clients", "-F", "#{client_pid}\t#{session_name}"])
+        var clients: [String: [Int32]] = [:]
+        for line in out.split(separator: "\n") {
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard f.count == 2, let pid = Int32(f[0]) else { continue }
+            clients[String(f[1]), default: []].append(pid)
+        }
+        return clients
     }
 
     // MARK: - Working directories

@@ -160,6 +160,18 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
         view.send(txt: text)
     }
 
+    /// The terminal's tty, as tmux names its clients ("/dev/ttys012").
+    var ttyPath: String? {
+        guard let fd = view.process?.childfd, fd >= 0, let name = ptsname(fd) else { return nil }
+        return String(cString: name)
+    }
+
+    /// The login shell's pid, once it is running.
+    var shellPid: Int32? {
+        guard let pid = view.process?.shellPid, pid > 0 else { return nil }
+        return pid
+    }
+
     /// Ctrl-U first so a half-typed command does not swallow the cd.
     func cd(to url: URL) {
         send("\u{15}cd \(Self.quote(url))\n")
@@ -206,7 +218,11 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
     }
 
     private static func quote(_ url: URL) -> String {
-        "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        quote(url.path)
+    }
+
+    static func quote(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func focusTerminal() {

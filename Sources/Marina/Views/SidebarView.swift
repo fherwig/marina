@@ -495,13 +495,14 @@ struct SidebarView: View {
         )
         .contentShape(Rectangle())
         .measured(at: i, space: Self.space)
-        .help(session.directory.path)
+        .help("Go to this session — \(session.directory.path)")
         .onTapGesture {
             index = i
-            openFavourite(session.directory, focusPane: false)
+            app.goToSession(session)
         }
         .contextMenu {
-            Button("Open") { openFavourite(session.directory, focusPane: true) }
+            Button("Go to Session") { app.goToSession(session) }
+            Button("Open Folder") { openFavourite(session.directory, focusPane: true) }
             Button("Open in Second Pane") { app.activeTab?.openInSecondPane(session.directory) }
             Button("Open in New Tab") { app.newTab(at: session.directory) }
             Button("Open in Marina Terminal") { app.openInTerminal(session.directory) }
@@ -686,7 +687,7 @@ struct SidebarView: View {
             claudeCollapsed = false
             normalise()
         case .claude(let session):
-            openFavourite(session.directory, focusPane: true)
+            app.goToSession(session)
         case .volumesHeader:
             guard volumesCollapsed else { return }
             volumesCollapsed = false
@@ -770,6 +771,9 @@ struct SidebarView: View {
     /// files (and app bundles) open in their default app.
     private func openFavourite(_ url: URL, focusPane: Bool) {
         if isNavigableDir(url) {
+            // going to a folder from a tab that was showing a tmux session
+            // leaves the session: detach, and close that terminal
+            app.activeTab?.leaveTmuxSession()
             navigate(to: url)
             if focusPane, let tab = app.activeTab {
                 app.requestFocus(.pane(tab.activePane.id))

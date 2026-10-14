@@ -448,6 +448,94 @@ final class AppState: ObservableObject {
 
     func cdTerminal() { activeTab?.sendTerminalCD() }
 
+    /// Click / Return on a Claude Sessions row: bring up the session itself,
+    /// not just its folder.
+    ///
+    /// 1. A Marina tab already shows it — the session runs in that tab's shell,
+    ///    or a tmux client attached to it does: switch to the tab (in whichever
+    ///    window) and put the keyboard in its terminal.
+    /// 2. A tmux session no Marina tab shows: attached here, in the active
+    ///    pane's terminal, on the session's own pane — Marina does not open
+    ///    tabs on its own. A terminal already showing tmux switches over; one
+    ///    busy with anything else is left alone.
+    /// 3. A session started in another app's terminal: bring that app forward.
+    ///    Marina cannot reach into another terminal's window, and resuming the
+    ///    session here would fork its conversation.
+    func goToSession(_ session: ClaudeSession) {
+        let hostList = ClaudeSessionScan.hosts(of: session)
+        let hosts = Set(hostList)
+        for state in MarinaWindows.shared.all {
+            for (index, tab) in state.tabs.enumerated() {
+                // either of the tab's terminals — with Terminal per Pane the
+                // right pane has its own
+                guard let slot = [TabState.Slot.main, .second].first(where: { slot in
+                    tab.session(slot)?.shellPid.map(hosts.contains) ?? false
+                }) else { continue }
+                if state !== self {
+                    MarinaWindows.shared.window(for: state)?.makeKeyAndOrderFront(nil)
+                }
+                state.leaveTabBar(focusPane: false)
+                state.selectTab(index, focusPane: false)
+                // the pane above the terminal becomes active, so ⌘↓ below
+                // lands in the right one
+                if tab.terminalPerPane {
+                    if slot == .second, !tab.isDual { tab.openInSecondPane(session.directory) }
+                    tab.activePaneIndex = slot == .second ? 1 : 0
+                }
+                // and the pane above it shows the session's folder, however
+                // far it was browsed away since
+                tab.activePane.navigate(to: session.directory)
+                tab.enterTerminal()
+                return
+            }
+        }
+        if let name = session.tmuxSession, let tmux = ClaudeSessionScan.tmux, let tab = activeTab {
+            // here, in the active pane's terminal — Marina does not open tabs
+            // on its own
+            let slot = tab.activeSlot
+            let target = "=" + name
+            // the folder first: a terminal opened below starts its shell in the
+            // pane's folder, and that shell's first prompt reports its folder —
+            // which, were it the old one, would take the pane straight back
+            tab.activePane.navigate(to: session.directory)
+            let terminal = tab.session(slot)
+            if let terminal, terminal.runningProgram == "tmux", let tty = terminal.ttyPath {
+                // already showing a tmux session: move that client over
+                var args = ["switch-client", "-c", tty, "-t", target]
+                if let pane = session.tmuxPane {
+                    args += [";", "select-window", "-t", pane, ";", "select-pane", "-t", pane]
+                }
+                ClaudeSessionScan.runTmux(args)
+                tab.markTmuxSwitched(slot, to: name)
+            } else if let terminal, let program = terminal.runningProgram {
+                // never typed into something else that is running
+                errorMessage = "The terminal is busy with \(program). Quit it, or switch to the other pane, to open \(name) here."
+                return
+            } else {
+                let openedForIt = terminal == nil
+                tab.ensureTerminal(slot)
+                var command = "\(tmux) attach -t \(TerminalSession.quote(target))"
+                if let pane = session.tmuxPane {
+                    command += " \\; select-window -t \(pane) \\; select-pane -t \(pane)"
+                }
+                // Ctrl-U first, so a half-typed line does not swallow it
+                tab.session(slot)?.send("\u{15}" + command + "\n")
+                tab.markTmuxAttached(slot, session: name, openedForIt: openedForIt)
+            }
+            leaveTabBar(focusPane: false)
+            tab.enterTerminal()
+            return
+        }
+        let owner = hostList.lazy
+            .compactMap { NSRunningApplication(processIdentifier: $0) }
+            .first { $0.activationPolicy == .regular }
+        if let owner, owner != NSRunningApplication.current {
+            owner.activate()
+            return
+        }
+        activePane?.navigate(to: session.directory)
+    }
+
     /// Sidebar action: point the tab's shell at a folder and focus the terminal.
     func openInTerminal(_ url: URL) {
         guard let tab = activeTab else { return }

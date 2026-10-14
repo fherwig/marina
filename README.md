@@ -95,12 +95,18 @@ pictures, for someone working with AI sessions.
   so, and the pane offers the Settings pane where you can grant it. The
   permission is tied to Marina's code signature, which is stable, so it is
   granted once and survives rebuilds.
-- **Claude Sessions section** — the sidebar also lists the working directory of
-  every Claude Code session running right now, so you can jump straight to the
-  one you were just in. It is a snapshot: press ⟳ in the section header (or
-  ⇧⌥⌘R) to take a new one. Sessions living in a tmux pane show that pane's
-  path and are marked with a split-pane icon; ones started straight from a
-  terminal show a terminal icon.
+- **Claude Sessions section** — the sidebar also lists every Claude Code
+  session running right now, by its working directory. Click one (or Return)
+  to go to the session itself: a Marina tab already showing it is brought to
+  the front with its terminal focused; a tmux session opens in this tab's
+  terminal, on its own pane (a terminal already showing tmux switches over;
+  one busy with something else is left alone); clicking a folder in the
+  sidebar afterwards detaches from it again; one started in another terminal app brings that
+  app forward. Arrowing through the list previews each folder in the pane, and
+  right-click ▸ Open Folder goes to the folder alone. The list is a snapshot:
+  press ⟳ in the section header (or ⇧⌥⌘R) to take a new one. Sessions living
+  in a tmux pane show that pane's path and are marked with a split-pane icon;
+  ones started straight from a terminal show a terminal icon.
 - **Opened from anywhere** — `open -a Marina <folder>` opens that folder, or
   switches to the tab already showing it; `open -a Marina <file>` reveals the
   file, selected and scrolled into view. See
@@ -248,6 +254,7 @@ to the unit that is visually in that direction — what a mouse click would do.
 | ⌃⌘S | Fold/unfold the sidebar |
 | ↑ / ↓ | Move between favourites — the pane follows immediately (file favourites just get selected) |
 | Return or → | Open the selected favourite (folder: navigate + focus pane; file: default app) |
+| Return or → (on a Claude session) | Go to the session — its Marina tab, its tmux pane attached in this tab's terminal, or the terminal app it runs in |
 | ⌘→ | Back to the file pane *without* changing folder (undo an accidental ⌘←) |
 | ← / → | Fold the section the selection is in / unfold a folded one |
 | Type a letter | Jump to the next favourite starting with it; press again to cycle through the rest |

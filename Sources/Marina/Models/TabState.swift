@@ -64,6 +64,25 @@ final class TabState: ObservableObject, Identifiable {
     /// when a second pane is.
     @Published private(set) var secondTerminal: TerminalSession?
     @Published var secondTerminalVisible = false
+    /// Terminals Go to Session attached to a tmux session: which session, and
+    /// whether it opened the terminal for that or used a shell already there.
+    private var tmuxAttached: [Slot: (session: String, openedForIt: Bool)] = [:]
+
+    /// A shell just detached from tmux: its next prompt reports the folder it
+    /// was in before, and that must not drag the pane away from the folder
+    /// that was just clicked. Ignored once, within a couple of seconds.
+    private var ignoreCwdReport: [Slot: Date] = [:]
+
+    /// A fresh attach, in a terminal just opened or in an idle shell.
+    func markTmuxAttached(_ slot: Slot, session: String, openedForIt: Bool) {
+        tmuxAttached[slot] = (session, openedForIt)
+    }
+
+    /// The client moved to another session: the terminal is still the one it
+    /// was, opened for tmux or not.
+    func markTmuxSwitched(_ slot: Slot, to session: String) {
+        tmuxAttached[slot] = (session, tmuxAttached[slot]?.openedForIt ?? false)
+    }
     @Published var secondTerminalMaximized = false
 
     /// Which of the two terminals something is about.
@@ -314,6 +333,11 @@ final class TabState: ObservableObject, Identifiable {
     private func terminalMoved(to url: URL, slot: Slot) {
         // the second terminal's pane may be gone (⌘1); it follows nothing then
         guard slot == .main || terminalPerPane else { return }
+        if let since = ignoreCwdReport.removeValue(forKey: slot), Date().timeIntervalSince(since) < 2 {
+            // the prompt after a detach; Terminal Follows Panes brings the
+            // shell to the pane instead
+            return logFollow("terminal → \(url.path) ignored: just detached from tmux")
+        }
         let target = pane(of: slot)
         logFollow("terminal → \(url.path)  (followTerminal=\(followTerminal), pane at \(target.directory.path))")
         guard followTerminal else { return }
@@ -325,6 +349,32 @@ final class TabState: ObservableObject, Identifiable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             self?.session(slot)?.focusTerminal()
         }
+    }
+
+    /// Clicking a folder in the sidebar while the active pane's terminal shows
+    /// a tmux session Go to Session put there: leave the session. The session
+    /// lives on in tmux — only this client goes. A terminal opened just for it
+    /// closes; a shell that was already there is detached and folds away,
+    /// still running. Left alone once tmux is no longer in the foreground, so
+    /// nothing else the user ran there is touched.
+    func leaveTmuxSession() {
+        let slot = activeSlot
+        guard let attached = tmuxAttached.removeValue(forKey: slot),
+              let session = session(slot), session.runningProgram == "tmux",
+              let tty = session.ttyPath else { return }
+        // and still on the session it was put on — not a tmux the user has
+        // since started there themselves
+        let showing = ClaudeSessionScan.runTmux(["display-message", "-p", "-c", tty, "#{session_name}"])
+        guard showing.trimmingCharacters(in: .whitespacesAndNewlines) == attached.session else { return }
+        if attached.openedForIt {
+            session.terminate()
+            if slot == .main { terminal = nil } else { secondTerminal = nil }
+        } else {
+            ignoreCwdReport[slot] = Date()
+            ClaudeSessionScan.runTmux(["detach-client", "-t", tty])
+        }
+        setVisible(slot, false)
+        setMaximized(slot, false)
     }
 
     func shutdown() {
