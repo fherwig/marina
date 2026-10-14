@@ -66,8 +66,9 @@ pictures, for someone working with AI sessions.
   window that has the keyboard. Closing a tab ends its terminal's processes,
   and asks first if something — a claude session, a build — is still running.
 - **Fold-down terminal per tab** (⌘`) — a real shell (your login shell) under
-  the file panes. ⌥⌘` gives the terminal the whole tab; ⌥⌘J puts it under the
-  left pane only when a second pane or the viewer is open. The shortcut is the
+  the file panes. ⌥⌘` gives the terminal the whole tab; with a second pane
+  open, each pane has its own terminal (⌘` opens the active pane's), and ⌥⌘J
+  puts the terminal under the left pane only when the viewer is open. The shortcut is the
   key left of "1", bound by position rather than character — ⌘^ on a German
   keyboard. Selected text stays selected while the program keeps drawing, so
   ⌘C still finds it. Over a program that has asked for the mouse, ⇧-drag
@@ -270,7 +271,8 @@ to the unit that is visually in that direction — what a mouse click would do.
 | ⌘C / ⌘V | Copy the selection / paste into the shell (⌘C with nothing selected leaves the clipboard alone) |
 | Right-click | Copy, Paste, Select All |
 | ⌘W on a busy tab | Asks first — "claude is still running in this tab's terminal" — with Cancel on Return. Closing the tab hangs the terminal up: the shell and what it started end with it, rather than living on unreachable |
-| ⌥⌘J | Terminal under the **left pane only**: with a second pane (⌘2) or the viewer (⌘3) open, the right side keeps the full height. Press again for the terminal across the whole width. Also in the Terminal menu and the terminal's right-click menu; remembered |
+| ⌘` with two panes | Each pane has its own terminal, folded down under it — ⌘`, ⌘↓, ⌥⌘` and ⌘J act on the active pane's, and each follows its own pane. Closing the second pane (⌘1) hides its terminal without ending what runs in it; ⌘2 brings it back |
+| ⌥⌘J | Terminal under the **left pane only** while the viewer (⌘3) is open, so the viewer keeps the full height. Press again for the terminal across the whole width. Also in the Terminal menu and the terminal's right-click menu; remembered |
 | Terminal → Mouse Reporting | On (default): programs in the terminal get the mouse, and ⇧-drag selects. Off: a plain drag selects and those programs lose their mouse. The setting sticks |
 | Terminal → Panes Follow Terminal | The panes follow the shell's cd (on by default) |
 | Terminal → Terminal Follows Panes | The shell cds after the panes — but only while it sits idle at its prompt, so a running claude, editor or build is never interrupted, and a half-typed command is never wiped (on by default) |

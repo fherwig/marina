@@ -52,7 +52,7 @@ struct HelpView: View {
                     ("⌘↓  ⌘↑", "Down into terminal / up to files"),
                     ("⌥⌘`", "Terminal full height"),
                     ("⌘J", "cd terminal to this folder"),
-                    ("⌥⌘J", "Terminal under left pane only (with ⌘2 / ⌘3)"),
+                    ("⌥⌘J", "Terminal under left pane only (with ⌘3)"),
                     ("—", "Shell follows the panes when idle at its prompt"),
                     ("Drag", "Select text (double / triple: word, line)"),
                     ("⇧-drag", "Select when a plain drag selects nothing (or turn Terminal ▸ Mouse Reporting off)"),

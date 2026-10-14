@@ -57,7 +57,7 @@ private struct TabButton: View {
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 .lineLimit(1)
-            if tab.terminal != nil {
+            if tab.hasTerminal {
                 Image(systemName: "terminal")
                     .font(.system(size: 9))
                     .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))

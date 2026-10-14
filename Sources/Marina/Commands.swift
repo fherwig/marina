@@ -138,7 +138,8 @@ struct MarinaCommands: Commands {
                                   modifiers: [.command, .option])
             Button("cd to Active Folder") { app?.cdTerminal() }
                 .keyboardShortcut("j")
-            // only changes anything with a second pane or the viewer open
+            // only changes anything with the viewer open: two file panes
+            // always have a terminal each
             Toggle("Terminal Under Left Pane Only", isOn: $terminalLeftOnly)
                 .keyboardShortcut("j", modifiers: [.command, .option])
             Divider()
@@ -154,8 +155,11 @@ struct MarinaCommands: Commands {
             // belongs to claude rather than to text selection. Shift-drag
             // selects regardless; turn this off to get the plain drag back.
             Toggle("Mouse Reporting", isOn: Binding(
-                get: { app?.activeTab?.terminal?.mouseReporting ?? true },
-                set: { app?.activeTab?.terminal?.mouseReporting = $0 }
+                get: { (app?.activeTab).flatMap { $0.focusedTerminal ?? $0.terminal }?.mouseReporting ?? true },
+                set: { value in
+                    guard let tab = app?.activeTab else { return }
+                    (tab.focusedTerminal ?? tab.terminal)?.mouseReporting = value
+                }
             ))
         }
 

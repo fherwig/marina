@@ -16,7 +16,6 @@ struct FilePaneView: View {
     @State private var typeAhead = TypeAhead()
     /// A real AppKit view inside this pane, for anchoring ⌥⌘O's menu.
     @StateObject private var anchor = PaneAnchorBox()
-    @AppStorage("marina.terminalLeftOnly") private var terminalLeftOnly = false
 
     private var isActivePane: Bool {
         !tab.isDual || tab.activePaneIndex == paneIndex
@@ -228,9 +227,9 @@ struct FilePaneView: View {
         Color.clear
             .frame(height: 8)
             .contentShape(Rectangle())
-            // with the terminal under the left pane only, the right pane's bar
-            // has no terminal beneath it to resize
-            .modifier(TerminalResizeGrip(tab: tab, enabled: !(terminalLeftOnly && paneIndex == 1)))
+            // the right pane's bar sizes the right pane's own terminal — live
+            // only while it has one showing
+            .modifier(TerminalResizeGrip(tab: tab, slot: paneIndex == 1 ? .second : .main))
     }
 
     // MARK: - Open With
@@ -604,12 +603,13 @@ private struct PaneHeader: View {
 /// it. Live only while the terminal is showing and not taking the whole tab.
 private struct TerminalResizeGrip: ViewModifier {
     @ObservedObject var tab: TabState
-    var enabled = true
+    /// The terminal beneath this bar.
+    let slot: TabState.Slot
     @State private var startHeight: CGFloat?
     @State private var hovering = false
 
     private var active: Bool {
-        enabled && tab.terminalVisible && !tab.terminalMaximized && tab.terminal != nil
+        tab.isVisible(slot) && !tab.isMaximized(slot) && tab.session(slot) != nil
     }
 
     func body(content: Content) -> some View {
@@ -631,7 +631,7 @@ private struct TerminalResizeGrip: ViewModifier {
                         .onChanged { value in
                             if startHeight == nil {
                                 startHeight = tab.terminalHeight
-                                    ?? tab.terminal?.defaultHeight
+                                    ?? tab.session(slot)?.defaultHeight
                                     ?? TabState.minTerminalHeight
                             }
                             // clamp as we go, so dragging past the limit does

@@ -279,7 +279,7 @@ final class AppState: ObservableObject {
         guard tabs.indices.contains(index) else { return }
         // closing the tab ends the terminal's processes, so anything still
         // running in it gets a say first
-        if !force, let program = tabs[index].terminal?.runningProgram {
+        if !force, let program = tabs[index].runningProgram {
             closeTabPrompt = CloseTabPrompt(tab: tabs[index].id, program: program)
             return
         }
@@ -552,7 +552,7 @@ final class AppState: ObservableObject {
                 + " selection=\(activeTab?.terminal?.hasSelection ?? false)"
                 + " mouseReporting=\(activeTab?.terminal?.mouseReporting ?? false)"
                 + " responder=\(ownFirstResponder.map { "\(type(of: $0))" } ?? "none")")
-        if let terminal = activeTab?.terminal, activeTab?.terminalHasFocus == true {
+        if let terminal = activeTab?.focusedTerminal {
             // nothing selected: leave the clipboard alone rather than copying
             // the file pane's selection behind the user's back
             let copied = terminal.copySelection()
@@ -608,7 +608,7 @@ final class AppState: ObservableObject {
 
     /// ⌘V — clipboard paste in text contexts, paste files into the active pane.
     func smartPaste() {
-        if let terminal = activeTab?.terminal, activeTab?.terminalHasFocus == true {
+        if let terminal = activeTab?.focusedTerminal {
             terminal.pasteClipboard()
             return
         }

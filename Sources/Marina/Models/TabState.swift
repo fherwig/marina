@@ -53,8 +53,70 @@ final class TabState: ObservableObject, Identifiable {
     /// The other direction: the shell cds after the file panes. Only ever
     /// fires while the shell is idle at its prompt — see `TerminalSession.canAcceptCD`.
     @Published var followPanes = true
-    private var followWork: DispatchWorkItem?
+    private var followWork: [Slot: DispatchWorkItem] = [:]
+    /// The tab's terminal: across the width under both panes, or — with
+    /// Terminal per Pane — the left pane's own.
     @Published private(set) var terminal: TerminalSession?
+
+    /// With two file panes, the right pane's own terminal, beside the left
+    /// one's. Closing the second pane only hides it —
+    /// whatever runs in it is not killed for a layout change — and it is back
+    /// when a second pane is.
+    @Published private(set) var secondTerminal: TerminalSession?
+    @Published var secondTerminalVisible = false
+    @Published var secondTerminalMaximized = false
+
+    /// Which of the two terminals something is about.
+    enum Slot { case main, second }
+
+    /// Each file pane has its own terminal whenever there are two of them.
+    /// With the viewer beside the pane, or a single pane, there is just the one.
+    var terminalPerPane: Bool { isDual }
+
+    /// The terminal the active pane's commands act on — ⌘`, ⌘↓, ⌘J.
+    var activeSlot: Slot { terminalPerPane && activePaneIndex == 1 ? .second : .main }
+
+    func session(_ slot: Slot) -> TerminalSession? {
+        slot == .main ? terminal : secondTerminal
+    }
+
+    func isVisible(_ slot: Slot) -> Bool {
+        slot == .main ? terminalVisible : secondTerminalVisible
+    }
+
+    private func setVisible(_ slot: Slot, _ visible: Bool) {
+        if slot == .main { terminalVisible = visible } else { secondTerminalVisible = visible }
+    }
+
+    func isMaximized(_ slot: Slot) -> Bool {
+        slot == .main ? terminalMaximized : secondTerminalMaximized
+    }
+
+    private func setMaximized(_ slot: Slot, _ maximized: Bool) {
+        if slot == .main { terminalMaximized = maximized } else { secondTerminalMaximized = maximized }
+    }
+
+    /// The pane a terminal belongs to: with Terminal per Pane, its own; the
+    /// one shared terminal goes with whichever pane is active.
+    private func pane(of slot: Slot) -> PaneState {
+        if slot == .second, isDual { return panes[1] }
+        return terminalPerPane ? panes[0] : activePane
+    }
+
+    /// Whichever terminal has the keyboard, if one does.
+    var focusedTerminal: TerminalSession? {
+        for slot in [Slot.main, .second] where isVisible(slot) {
+            if let session = session(slot), session.isFocused { return session }
+        }
+        return nil
+    }
+
+    var hasTerminal: Bool { terminal != nil || secondTerminal != nil }
+
+    /// What is still running in either terminal — closing the tab asks first.
+    var runningProgram: String? {
+        terminal?.runningProgram ?? secondTerminal?.runningProgram
+    }
 
     weak var app: AppState?
 
@@ -83,9 +145,13 @@ final class TabState: ObservableObject, Identifiable {
     private func addPane(directory: URL) {
         let pane = PaneState(directory: directory)
         pane.onDirectoryChange = { [weak self, weak pane] url in
-            guard let self else { return }
+            guard let self, let pane else { return }
             self.objectWillChange.send()
-            if let pane, pane === self.activePane { self.terminalFollow(to: url) }
+            if self.terminalPerPane {
+                self.terminalFollow(to: url, slot: pane === self.panes[0] ? .main : .second)
+            } else if pane === self.activePane {
+                self.terminalFollow(to: url, slot: .main)
+            }
         }
         panes.append(pane)
     }
@@ -99,6 +165,9 @@ final class TabState: ObservableObject, Identifiable {
         viewerVisible = false
         if panes.count < 2 {
             addPane(directory: url)
+            // a second pane back over the terminal it left behind: that
+            // terminal is this pane's again, so it comes along
+            if terminalPerPane, secondTerminal != nil { terminalFollow(to: url, slot: .second) }
         } else {
             panes[1].navigate(to: url)
         }
@@ -133,91 +202,100 @@ final class TabState: ObservableObject, Identifiable {
 
     // MARK: - Terminal
 
-    func ensureTerminal() {
-        guard terminal == nil else { return }
-        logFollow("terminal created at \(activePane.directory.path)")
-        let session = TerminalSession(startingAt: activePane.directory)
+    func ensureTerminal(_ slot: Slot = .main) {
+        guard session(slot) == nil else { return }
+        let start = pane(of: slot).directory
+        logFollow("terminal created at \(start.path)")
+        let session = TerminalSession(startingAt: start)
         session.onCwdChange = { [weak self] url in
-            Task { @MainActor in self?.terminalMoved(to: url) }
+            Task { @MainActor in self?.terminalMoved(to: url, slot: slot) }
         }
         session.onExit = { [weak self] in
-            Task { @MainActor in
+            Task { @MainActor [weak session] in
                 guard let self else { return }
-                self.terminal = nil
-                self.terminalVisible = false
-                self.terminalMaximized = false
-                self.app?.requestFocus(.pane(self.activePane.id))
+                // only if it is still this slot's terminal: a replacement may
+                // already have taken its place
+                guard self.session(slot) === session else { return }
+                if slot == .main { self.terminal = nil } else { self.secondTerminal = nil }
+                self.setVisible(slot, false)
+                self.setMaximized(slot, false)
+                self.app?.requestFocus(.pane(self.pane(of: slot).id))
             }
         }
-        terminal = session
+        if slot == .main { terminal = session } else { secondTerminal = session }
     }
 
     /// ⌘` — show + focus; if already focused, hide.
     func toggleTerminal() {
-        if !terminalVisible {
-            ensureTerminal()
-            terminalVisible = true
-            focusTerminalSoon()
-        } else if let t = terminal, t.isFocused {
-            terminalVisible = false
-            terminalMaximized = false
-            app?.requestFocus(.pane(activePane.id))
+        let slot = activeSlot
+        if !isVisible(slot) {
+            ensureTerminal(slot)
+            setVisible(slot, true)
+            focusTerminalSoon(slot)
+        } else if let t = session(slot), t.isFocused {
+            setVisible(slot, false)
+            setMaximized(slot, false)
+            app?.requestFocus(.pane(pane(of: slot).id))
         } else {
-            focusTerminalSoon()
+            focusTerminalSoon(slot)
         }
     }
 
     /// ⌥⌘` — terminal takes the whole tab; file panes fold away.
     func toggleTerminalMaximized() {
-        ensureTerminal()
-        if !terminalVisible {
-            terminalVisible = true
-            terminalMaximized = true
-            focusTerminalSoon()
+        let slot = activeSlot
+        ensureTerminal(slot)
+        if !isVisible(slot) {
+            setVisible(slot, true)
+            setMaximized(slot, true)
+            focusTerminalSoon(slot)
         } else {
-            terminalMaximized.toggle()
-            if terminalMaximized {
-                focusTerminalSoon()
+            setMaximized(slot, !isMaximized(slot))
+            if isMaximized(slot) {
+                focusTerminalSoon(slot)
             } else {
-                app?.requestFocus(.pane(activePane.id))
+                app?.requestFocus(.pane(pane(of: slot).id))
             }
         }
     }
 
     /// ⌘↓ — move keyboard focus down into the terminal, opening it if needed.
     func enterTerminal() {
-        ensureTerminal()
-        terminalVisible = true
-        focusTerminalSoon()
+        let slot = activeSlot
+        ensureTerminal(slot)
+        setVisible(slot, true)
+        focusTerminalSoon(slot)
     }
 
-    /// ⌘↑ from a focused terminal — climb back up to the file pane.
+    /// ⌘↑ from a focused terminal — climb back up to the file pane above it.
     func leaveTerminal() {
-        if terminalMaximized { terminalMaximized = false }
-        app?.requestFocus(.pane(activePane.id))
+        let slot: Slot = secondTerminal.map { $0 === focusedTerminal } == true ? .second : .main
+        if isMaximized(slot) { setMaximized(slot, false) }
+        let above = pane(of: slot)
+        if let index = panes.firstIndex(where: { $0 === above }) { activePaneIndex = index }
+        app?.requestFocus(.pane(above.id))
     }
 
-    var terminalHasFocus: Bool {
-        terminalVisible && (terminal?.isFocused ?? false)
-    }
+    var terminalHasFocus: Bool { focusedTerminal != nil }
 
     /// ⌘J — make the shell follow the file manager.
     func sendTerminalCD(to url: URL? = nil) {
-        ensureTerminal()
-        terminalVisible = true
-        terminal?.cd(to: url ?? activePane.directory)
+        let slot = activeSlot
+        ensureTerminal(slot)
+        setVisible(slot, true)
+        session(slot)?.cd(to: url ?? activePane.directory)
     }
 
     /// Pane moved — bring the shell along, once the walking stops. Arrowing
     /// down the sidebar steps the pane through a dozen folders and only the
     /// one it settles on is worth a cd.
-    private func terminalFollow(to url: URL) {
+    private func terminalFollow(to url: URL, slot: Slot) {
         logFollow("pane → \(url.path)")
         guard followPanes else { return }
-        followWork?.cancel()
+        followWork[slot]?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard let terminal = self.terminal else { return self.logFollow("no terminal open") }
+            guard let terminal = self.session(slot) else { return self.logFollow("no terminal open") }
             guard self.followPanes else { return self.logFollow("Terminal Follows Panes is off") }
             let readiness = terminal.cdReadiness
             guard readiness == .ready else {
@@ -227,27 +305,32 @@ final class TabState: ObservableObject, Identifiable {
             self.logFollow("cd \(url.path)")
             terminal.followCD(to: url)
         }
-        followWork = work
+        followWork[slot] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     private func logFollow(_ text: @autoclosure () -> String) { DebugLog.follow(text()) }
 
-    private func terminalMoved(to url: URL) {
-        logFollow("terminal → \(url.path)  (followTerminal=\(followTerminal), pane at \(activePane.directory.path))")
+    private func terminalMoved(to url: URL, slot: Slot) {
+        // the second terminal's pane may be gone (⌘1); it follows nothing then
+        guard slot == .main || terminalPerPane else { return }
+        let target = pane(of: slot)
+        logFollow("terminal → \(url.path)  (followTerminal=\(followTerminal), pane at \(target.directory.path))")
         guard followTerminal else { return }
-        guard url.path != activePane.directory.path else { return }
-        activePane.navigate(to: url)
+        guard url.path != target.directory.path else { return }
+        target.navigate(to: url)
     }
 
-    private func focusTerminalSoon() {
+    private func focusTerminalSoon(_ slot: Slot) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.terminal?.focusTerminal()
+            self?.session(slot)?.focusTerminal()
         }
     }
 
     func shutdown() {
         terminal?.terminate()
         terminal = nil
+        secondTerminal?.terminate()
+        secondTerminal = nil
     }
 }
