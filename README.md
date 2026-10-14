@@ -162,6 +162,14 @@ macOS 14 or later. Built and tested on Apple silicon; the Intel path is
 untested. Building needs the Xcode Command Line Tools
 (`xcode-select --install`) and nothing else — no Xcode, no package manager.
 
+The Command Line Tools lack two things Xcode has — the Metal compiler SwiftTerm
+uses for its shader, and, from the macOS 27 SDK on, the plugin behind SwiftUI's
+`@State` macro. `make` works round both on its own (`Support/clt-setup.sh`):
+SwiftTerm's shader is bundled as source instead of precompiled (SwiftTerm can
+compile it at run time, and Marina's terminal does not use it), and the build uses the newest SDK in the Command Line Tools
+without the macro (macOS 26.5 at present). The app still runs on macOS 14 and
+later. With Xcode selected, none of this applies.
+
 ## Build & run
 
 ```sh

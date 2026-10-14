@@ -16,13 +16,23 @@ PKG = $(BUILD_DIR)/$(APP_NAME)-$(VERSION).pkg
 # Create it once with Support/make-signing-cert.sh; without it, ad-hoc is used.
 SIGN_ID = Marina Dev Signing
 
-.PHONY: build release app run pkg clean
+.PHONY: toolchain build release app run pkg clean
 
-build:
-	swift build
+# With only the Command Line Tools, Support/clt-setup.sh works round what they
+# lack (the Metal compiler, SwiftUI's macro plugins) and leaves the environment
+# the build needs in .build/clt-env and .build/clt-flags. With Xcode it does
+# nothing.
+CLT_ENV = env $$(cat .build/clt-env)
+CLT_FLAGS = $$(cat .build/clt-flags)
 
-release:
-	swift build -c release
+toolchain:
+	@Support/clt-setup.sh
+
+build: toolchain
+	$(CLT_ENV) swift build $(CLT_FLAGS)
+
+release: toolchain
+	$(CLT_ENV) swift build -c release $(CLT_FLAGS)
 
 app: release
 	@# The bundle is assembled and signed outside the project: Desktop is a
