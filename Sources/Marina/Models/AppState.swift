@@ -10,11 +10,6 @@ enum FocusTarget: Hashable {
     case pane(UUID)
 }
 
-struct FocusRequest: Equatable {
-    let target: FocusTarget
-    let gen: Int
-}
-
 /// ⌥⌘O asking a particular pane to put its Open With menu on screen — the
 /// pane owns the geometry the menu has to be anchored to, the menu bar does
 /// not.
@@ -71,10 +66,16 @@ final class AppState: ObservableObject {
     var claudeSessionsScanning: Bool { ClaudeSessionsStore.shared.scanning }
     /// Mounted volumes and cloud drives — see VolumesStore.
     var volumes: [Volume] { VolumesStore.shared.volumes }
-    @Published var focusRequest: FocusRequest?
+    /// Moves the keyboard; installed by this window's ContentView, which owns
+    /// the FocusState. A direct call rather than a published request: a
+    /// published one costs a full re-render of both panes before it is even
+    /// seen, and that is most of what made switching panes slow.
+    var moveFocus: ((FocusTarget) -> Void)?
     /// Where the keyboard actually is (kept in sync by ContentView); the
-    /// ⌘-arrow moves need it to know which unit they are leaving.
-    @Published var focusedTarget: FocusTarget?
+    /// ⌘-arrow moves need it to know which unit they are leaving. Not
+    /// published: nothing draws it, and publishing it re-rendered every view
+    /// twice more after each focus change.
+    var focusedTarget: FocusTarget?
     /// True while the keyboard is "in" the tab strip. The strip is chrome that
     /// comes and goes, and a freshly inserted SwiftUI view does not reliably
     /// accept programmatic focus — so this mode owns its keys through an event
@@ -91,7 +92,6 @@ final class AppState: ObservableObject {
     @Published var sidebarVisible = true
     @Published var helpVisible = false
 
-    private var focusGen = 0
     private var favouritesObserver: AnyCancellable?
     private var claudeObserver: AnyCancellable?
     private var volumesObserver: AnyCancellable?
@@ -129,8 +129,18 @@ final class AppState: ObservableObject {
     func requestFocus(_ target: FocusTarget) {
         // any focus move elsewhere leaves the tab strip
         if target != .tabBar { leaveTabBar(focusPane: false) }
-        focusGen += 1
-        focusRequest = FocusRequest(target: target, gen: focusGen)
+        moveFocus?(target)
+    }
+
+    /// ContentView reports every focus change here. The ⌘-arrow moves are
+    /// decided against where the keyboard actually is, and the pane that has
+    /// it — however it got there — is the active one.
+    func focusMoved(to target: FocusTarget?) {
+        focusedTarget = target
+        guard case .pane(let id) = target, let tab = activeTab,
+              let index = tab.panes.firstIndex(where: { $0.id == id }),
+              tab.activePaneIndex != index else { return }
+        tab.activePaneIndex = index
     }
 
     func focusActivePane() {

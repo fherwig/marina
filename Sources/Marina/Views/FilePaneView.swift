@@ -4,7 +4,11 @@ import QuickLook
 
 struct FilePaneView: View {
     @EnvironmentObject var app: AppState
-    @ObservedObject var tab: TabState
+    /// Not observed: every change to the tab — which pane is active, above
+    /// all — would otherwise rebuild both file lists, cell by cell, and that
+    /// is what made switching panes slow. Only the header shows tab state
+    /// (see PaneHeader); everything else here reads it when an event runs.
+    let tab: TabState
     @ObservedObject var pane: PaneState
     let paneIndex: Int
     var focus: FocusState<FocusTarget?>.Binding
@@ -12,8 +16,6 @@ struct FilePaneView: View {
     @State private var typeAhead = TypeAhead()
     /// A real AppKit view inside this pane, for anchoring ⌥⌘O's menu.
     @StateObject private var anchor = PaneAnchorBox()
-    @State private var hoveringPath = false
-    @State private var pathCopied = false
     @AppStorage("marina.terminalLeftOnly") private var terminalLeftOnly = false
 
     private var isActivePane: Bool {
@@ -22,86 +24,20 @@ struct FilePaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            pathBar
+            PaneHeader(tab: tab, pane: pane, paneIndex: paneIndex, activate: activateFromClick)
             Divider()
             table
             Divider()
             statusBar
         }
+        // a click anywhere in the pane makes it the active one, there and then
+        .background(PaneClickWatcher { [tab, paneIndex] in
+            if tab.isDual, tab.activePaneIndex != paneIndex { tab.activePaneIndex = paneIndex }
+        })
         // NB: no tap gesture over the table — a SwiftUI gesture layered on top
         // of the NSTableView behind Table swallows the click that would select
         // a row. Clicking a pane makes it active through the selection change
         // (see activateFromClick) and through the path bar's own tap.
-    }
-
-    // MARK: - Path bar
-
-    private var pathBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(isActivePane ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
-            // The path is where you look for it, so it is where you take it
-            // from: a click on it copies the full path. Only the path text —
-            // a click anywhere else on the bar just makes the pane active, and
-            // must not overwrite files you have on the clipboard.
-            Text((pane.directory.path as NSString).abbreviatingWithTildeInPath)
-                .font(.system(size: 12, weight: isActivePane ? .semibold : .regular))
-                .foregroundStyle(isActivePane ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .underline(hoveringPath)
-                .lineLimit(1)
-                .truncationMode(.head)
-                .help("Click to copy \(pane.directory.path)")
-                .onHover { hoveringPath = $0 }
-                .onTapGesture {
-                    activateFromClick()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(pane.directory.path, forType: .string)
-                    pathCopied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathCopied = false }
-                }
-            if pathCopied {
-                Text("path copied")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
-            Spacer()
-            if pane.selection.count > 1 {
-                Text("\(pane.selection.count) selected")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            if pane.showHidden {
-                Text("hidden shown")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            if tab.isDual && paneIndex == 1 {
-                Button {
-                    tab.closeSecondPane()
-                } label: {
-                    Image(systemName: "xmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Close Second Pane (⌘1)")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        // clicking a pane's header is the explicit "work in this pane" gesture
-        .onTapGesture { activateFromClick() }
-        .overlay(alignment: .bottom) {
-            // unambiguous active-pane marker in dual-pane mode: this is the
-            // pane that ⌘J, ⌘C/⌘M, and the terminal follow
-            if tab.isDual && isActivePane {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
     }
 
     // MARK: - Table
@@ -255,11 +191,6 @@ struct FilePaneView: View {
             guard !files.isEmpty else { return false }
             app.drop(files, into: pane.directory)
             return true
-        }
-        .onChange(of: focus.wrappedValue) { _, newFocus in
-            if newFocus == .pane(pane.id) {
-                tab.activePaneIndex = paneIndex
-            }
         }
         // selecting a row with the mouse is also how the mouse hands this pane
         // the keyboard — the reliable backup when focus got stuck elsewhere
@@ -572,6 +503,103 @@ struct FilePaneView: View {
     }
 }
 
+/// A pane is the same pane while it shows the same PaneState in the same
+/// place. The focus binding is left out on purpose: SwiftUI sees it as new
+/// every time the window redraws, so without this every focus move rebuilt both
+/// file lists. It always points at the same FocusState, so the binding a pane
+/// already holds stays good. Changes to the pane itself still redraw it — those
+/// come through @ObservedObject, not through this comparison.
+extension FilePaneView: Equatable {
+    nonisolated static func == (a: FilePaneView, b: FilePaneView) -> Bool {
+        a.tab === b.tab && a.pane === b.pane && a.paneIndex == b.paneIndex
+    }
+}
+
+/// The pane's path bar — the one part of a pane that shows which pane is
+/// active, so the one part that has to watch the tab.
+private struct PaneHeader: View {
+    @ObservedObject var tab: TabState
+    @ObservedObject var pane: PaneState
+    let paneIndex: Int
+    /// FilePaneView's activateFromClick
+    let activate: () -> Void
+
+    @State private var hoveringPath = false
+    @State private var pathCopied = false
+
+    private var isActivePane: Bool {
+        !tab.isDual || tab.activePaneIndex == paneIndex
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(isActivePane ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+            // The path is where you look for it, so it is where you take it
+            // from: a click on it copies the full path. Only the path text —
+            // a click anywhere else on the bar just makes the pane active, and
+            // must not overwrite files you have on the clipboard.
+            Text((pane.directory.path as NSString).abbreviatingWithTildeInPath)
+                .font(.system(size: 12, weight: isActivePane ? .semibold : .regular))
+                .foregroundStyle(isActivePane ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .underline(hoveringPath)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .help("Click to copy \(pane.directory.path)")
+                .onHover { hoveringPath = $0 }
+                .onTapGesture {
+                    activate()
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(pane.directory.path, forType: .string)
+                    pathCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathCopied = false }
+                }
+            if pathCopied {
+                Text("path copied")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+            Spacer()
+            if pane.selection.count > 1 {
+                Text("\(pane.selection.count) selected")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            if pane.showHidden {
+                Text("hidden shown")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            if tab.isDual && paneIndex == 1 {
+                Button {
+                    tab.closeSecondPane()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close Second Pane (⌘1)")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        // clicking a pane's header is the explicit "work in this pane" gesture
+        .onTapGesture { activate() }
+        .overlay(alignment: .bottom) {
+            // unambiguous active-pane marker in dual-pane mode: this is the
+            // pane that ⌘J, ⌘C/⌘M, and the terminal follow
+            if tab.isDual && isActivePane {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+    }
+}
+
 /// Drag the pane's bottom bar to size the terminal: up grows it, down shrinks
 /// it. Live only while the terminal is showing and not taking the whole tab.
 private struct TerminalResizeGrip: ViewModifier {
@@ -650,6 +678,52 @@ private struct FolderDropTarget<Content: View>: View {
                 app.drop(files, into: folder)
                 return true
             } isTargeted: { targeted = $0 }
+    }
+}
+
+/// Sees every mouse-down inside the pane without taking any of them.
+///
+/// Clicking into the other pane used to make it active only indirectly: through
+/// the selection changing — which a click on the row already selected does not
+/// do, and which is ignored while the sidebar or a terminal still has the
+/// keyboard — or through SwiftUI noticing the table took focus, which it does
+/// not always. So the folder icon and the path sometimes stayed on the pane you
+/// had left. A local event monitor sees the click itself.
+private struct PaneClickWatcher: NSViewRepresentable {
+    let onMouseDown: () -> Void
+
+    func makeNSView(context: Context) -> WatcherView {
+        let view = WatcherView()
+        view.onMouseDown = onMouseDown
+        return view
+    }
+
+    func updateNSView(_ view: WatcherView, context: Context) {
+        view.onMouseDown = onMouseDown
+    }
+
+    final class WatcherView: NSView {
+        var onMouseDown: (() -> Void)?
+        private var monitor: Any?
+
+        // never the target of a click itself: the table and the bar above it
+        // still get every one
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, event.window === self.window else { return }
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    if self.bounds.contains(point) { self.onMouseDown?() }
+                }
+                return event
+            }
+        }
     }
 }
 

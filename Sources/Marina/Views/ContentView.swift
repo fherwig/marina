@@ -56,19 +56,19 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            app.moveFocus = { target in
+                // defer past the current key-event cycle; a synchronous focus
+                // move from inside another view's key handler is silently
+                // dropped. The next turn of the run loop is enough — the fixed
+                // 50 ms wait that used to sit on top of it was felt.
+                DispatchQueue.main.async {
+                    focus = target
+                }
+            }
             app.bootstrap()
         }
-        .onChange(of: app.focusRequest) { _, request in
-            guard let request else { return }
-            // defer past the current key-event cycle; a synchronous focus move
-            // from inside another view's key handler is silently dropped
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                focus = request.target
-            }
-        }
-        // ⌘-arrow moves are decided against where the keyboard actually is
         .onChange(of: focus) { _, target in
-            app.focusedTarget = target
+            app.focusMoved(to: target)
         }
         .sheet(item: $app.renameTarget) { request in
             RenameSheet(request: request)
