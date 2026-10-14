@@ -83,6 +83,7 @@ private struct TabButton: View {
             in: RoundedRectangle(cornerRadius: 5)
         )
         .contentShape(Rectangle())
+        .help(tab.activePane.directory.path)
         .onTapGesture { app.selectTab(index) }
         .contextMenu {
             Button("Close Tab") { app.closeTab(index) }

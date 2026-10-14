@@ -273,6 +273,7 @@ struct SidebarView: View {
         )
         .opacity(dragged ? 0.35 : 1)
         .contentShape(Rectangle())
+        .help(url.path)
         .measured(at: i, space: Self.space)
         .insertionLine(insertionEdge(at: i))
         .onTapGesture {
