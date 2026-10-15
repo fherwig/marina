@@ -39,6 +39,31 @@ struct RootView: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminalKeyMonitor: Any?
 
+    /// `open -a Marina <path>` while Marina was running made a NEW, empty
+    /// window at the home folder and put the path in a tab of the window
+    /// behind it (2026-10-15: "it will open a new marina window but not switch
+    /// the file"). AppKit hands the open-documents event to SwiftUI, and
+    /// SwiftUI answers it with a window of its WindowGroup whatever
+    /// application(_:open:) then does with the URLs; neither
+    /// handlesExternalEvents setting stops that for a file. Taking the event
+    /// here, before SwiftUI sees it, leaves the routing to OpenRequests. This
+    /// is the documented place: AppKit's own handlers are installed by now.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(openDocuments(_:withReply:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+    }
+
+    @objc private func openDocuments(_ event: NSAppleEventDescriptor,
+                                     withReply reply: NSAppleEventDescriptor) {
+        guard let list = event.paramDescriptor(forKeyword: keyDirectObject) else { return }
+        // one path arrives as a single descriptor, several as a list (1-based)
+        let items = list.numberOfItems == 0
+            ? [list] : (1...list.numberOfItems).compactMap { list.atIndex($0) }
+        let urls = items.compactMap(\.fileURLValue)
+        MainActor.assumeIsolated { OpenRequests.shared.receive(urls) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if GuideShots.isActive {
             // photographing itself: stay in the background, take no keyboard
@@ -53,6 +78,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Marina inside the first one, which is exactly not the point.
         NSWindow.allowsAutomaticWindowTabbing = false
         watchTerminalKey()
+        // a request that launched Marina may still be waiting for a window
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { OpenRequests.shared.launchFinished() }
+        }
     }
 
     /// `open -a Marina <folder>`, Finder's "Open With", a drop on the Dock

@@ -12,7 +12,23 @@ final class OpenRequests {
 
     private var pending: [URL] = []
 
+    /// Opens a Marina window. Set by MarinaCommands, whose environment carries
+    /// SwiftUI's openWindow from launch on, before any window exists.
+    var openWindow: (() -> Void)?
+    private var launched = false
+    private var askedForWindow = false
+
     private init() {}
+
+    /// Launched BY a request, a SwiftUI app makes no window of its own: the
+    /// window it skips is the one the open-documents event would have made,
+    /// and AppDelegate now takes that event first. So once launch is over —
+    /// restored windows are back by then — a request with nowhere to go opens
+    /// one.
+    func launchFinished() {
+        launched = true
+        deliver()
+    }
 
     func receive(_ urls: [URL]) {
         DebugLog.open("asked to open \(urls.map(\.path).joined(separator: ", "))")
@@ -25,9 +41,17 @@ final class OpenRequests {
     func deliver() {
         guard !pending.isEmpty else { return }
         guard MarinaWindows.shared.current != nil else {
+            // a visible window that has not registered yet is on its way
+            if launched, !askedForWindow,
+               !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) {
+                askedForWindow = true
+                DebugLog.open("no window after launch — opening one")
+                openWindow?()
+            }
             DebugLog.open("no window yet — holding \(pending.count)")
             return
         }
+        askedForWindow = false
         let urls = pending
         pending = []
         for url in urls { open(url) }
