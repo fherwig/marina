@@ -16,6 +16,11 @@ struct MarinaCommands: Commands {
     private var app: AppState? { MarinaWindows.shared.current }
 
     var body: some Commands {
+        // the one route to a new window that exists before any window does
+        let open = openWindow
+        let _ = MainActor.assumeIsolated {
+            OpenRequests.shared.openWindow = { open(id: "main") }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Marina") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
