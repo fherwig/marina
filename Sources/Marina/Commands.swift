@@ -10,12 +10,21 @@ struct MarinaCommands: Commands {
     // has to notice when the terminal's right-click menu flips it, or the
     // checkmark goes stale
     @AppStorage("marina.terminalLeftOnly") private var terminalLeftOnly = false
+    /// Observed so Zoom In / Out grey out at the ends of the range.
+    @AppStorage(UIZoom.key) private var zoom = 1.0
     /// Observed so the Undo item can say what it will undo.
     @ObservedObject private var fileUndo = FileUndo.shared
+    /// Observed so the per-tab toggles' checkmarks follow the tab.
+    @ObservedObject private var menuRefresh = MenuRefresh.shared
 
     private var app: AppState? { MarinaWindows.shared.current }
 
     var body: some Commands {
+        // the one route to a new window that exists before any window does
+        let open = openWindow
+        let _ = MainActor.assumeIsolated {
+            OpenRequests.shared.openWindow = { open(id: "main") }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Marina") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
@@ -50,7 +59,7 @@ struct MarinaCommands: Commands {
             Button("Paste") { app?.smartPaste() }
                 .keyboardShortcut("v")
             Divider()
-            Button("Select All") { app?.forwardToResponder("selectAll:") }
+            Button("Select All") { app?.selectAll() }
                 .keyboardShortcut("a")
         }
 
@@ -120,6 +129,9 @@ struct MarinaCommands: Commands {
             Divider()
             Button("Open With…") { app?.openWith() }
                 .keyboardShortcut("o", modifiers: [.command, .option])
+            // Space too, in the list; in tiles Space marks
+            Button("Quick Look") { app?.quickLook() }
+                .keyboardShortcut("y")
             Button("Copy Path") { app?.copyPath() }
                 .keyboardShortcut("c", modifiers: [.command, .option])
             Button("Copy Folder Path") { app?.copyFolderPath() }
@@ -138,7 +150,8 @@ struct MarinaCommands: Commands {
                                   modifiers: [.command, .option])
             Button("cd to Active Folder") { app?.cdTerminal() }
                 .keyboardShortcut("j")
-            // only changes anything with a second pane or the viewer open
+            // only changes anything with a second pane or the viewer open —
+            // with Terminal per Pane on (Settings), with the viewer alone
             Toggle("Terminal Under Left Pane Only", isOn: $terminalLeftOnly)
                 .keyboardShortcut("j", modifiers: [.command, .option])
             Divider()
@@ -154,13 +167,16 @@ struct MarinaCommands: Commands {
             // belongs to claude rather than to text selection. Shift-drag
             // selects regardless; turn this off to get the plain drag back.
             Toggle("Mouse Reporting", isOn: Binding(
-                get: { app?.activeTab?.terminal?.mouseReporting ?? true },
-                set: { app?.activeTab?.terminal?.mouseReporting = $0 }
+                get: { (app?.activeTab).flatMap { $0.focusedTerminal ?? $0.terminal }?.mouseReporting ?? true },
+                set: { value in
+                    guard let tab = app?.activeTab else { return }
+                    (tab.focusedTerminal ?? tab.terminal)?.mouseReporting = value
+                }
             ))
         }
 
         CommandGroup(replacing: .help) {
-            Button("Marina Keys") { app?.helpVisible.toggle() }
+            Button("Marina Keys") { HelpPanel.shared.toggle(beside: NSApp.keyWindow) }
                 .keyboardShortcut("h", modifiers: [.command, .control])
         }
 
@@ -172,6 +188,25 @@ struct MarinaCommands: Commands {
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
             Button("Previous Tab") { app?.prevTab() }
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+            Divider()
+            Button("Toggle Tiles") { app?.toggleTiles() }
+                .keyboardShortcut("4")
+            // ⌥⌘= also works (AppDelegate.watchZoomKey)
+            Button("Bigger Tiles") { Preferences.stepTileSize(bigger: true) }
+                .keyboardShortcut("+", modifiers: [.command, .option])
+            Button("Smaller Tiles") { Preferences.stepTileSize(bigger: false) }
+                .keyboardShortcut("-", modifiers: [.command, .option])
+            Divider()
+            // every window at once; ⌘= also zooms in (AppDelegate.watchZoomKey)
+            Button("Zoom In") { UIZoom.zoomIn() }
+                .keyboardShortcut("+")
+                .disabled(zoom >= UIZoom.steps[UIZoom.steps.count - 1])
+            Button("Zoom Out") { UIZoom.zoomOut() }
+                .keyboardShortcut("-")
+                .disabled(zoom <= UIZoom.steps[0])
+            // no ⌘0: that is Focus Sidebar
+            Button("Actual Size") { UIZoom.actualSize() }
+                .disabled(zoom == 1)
         }
     }
 }

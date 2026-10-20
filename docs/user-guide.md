@@ -7,13 +7,13 @@ and to serve as the Marina appendix of the AI sessions course book, which is
 why it follows the course's modules M0 to M3 and its words: session, session
 folder, context file, settings file, dialog.
 
-**Version.** Everything here is true of **Marina 0.5.0**, and every picture was
+**Version.** Everything here is true of **Marina 0.5.2**, and every picture was
 taken from that version. The folders in the pictures, `letters` and `notes`,
 are the course's own invented examples; nothing in them belongs to a real
 person. The pictures show Marina's window while another app is in front, which
 is why its text is drawn in macOS's slightly greyed inactive style.
 
-**Getting Marina.** Download the installer (`Marina-0.5.0.pkg`) from the
+**Getting Marina.** Download the installer (`Marina-0.5.2.pkg`) from the
 releases page of [github.com/fherwig/marina](https://github.com/fherwig/marina/releases)
 and open it. It installs Marina for you alone, in the Applications folder of
 your home folder, and asks for no administrator password. The installer is not

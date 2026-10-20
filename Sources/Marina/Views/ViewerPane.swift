@@ -21,6 +21,9 @@ import UniformTypeIdentifiers
 struct ViewerPane: View {
     @ObservedObject var tab: TabState
     @AppStorage("marina.viewerImageZoom") private var imageZoom = ImageZoom.fit
+    /// ⌘+ / ⌘−: the text the viewer lays out itself follows it, pages and
+    /// pictures that fit themselves to the pane do not.
+    @Environment(\.uiZoom) private var uiZoom
     @ObservedObject var pane: PaneState
 
     /// What is actually on screen. Separate from the selection so the pane can
@@ -57,17 +60,17 @@ struct ViewerPane: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: symbol)
-                .font(.system(size: 11))
+                .uiFont(11)
                 .foregroundStyle(.tertiary)
             Text(shown?.lastPathComponent ?? "Viewer")
-                .font(.system(size: 12))
+                .uiFont(12)
                 .foregroundStyle(shown == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             if let caption {
                 Text(caption)
-                    .font(.system(size: 10))
+                    .uiFont(10)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -130,15 +133,15 @@ struct ViewerPane: View {
             case .document:
                 DocumentViewer(url: url)
             case .spreadsheet:
-                PageViewer(url: url)
+                PageViewer(url: url, zoom: uiZoom)
             case .text:
                 switch TextFlavor(url: url) {
                 case .plain:
-                    TextViewer(url: url)
+                    TextViewer(url: url, zoom: uiZoom)
                 case .markdown, .code:
                     // one WebKit page for both, so arrowing between a note
                     // and a script swaps content instead of rebuilding WebKit
-                    PageViewer(url: url)
+                    PageViewer(url: url, zoom: uiZoom)
                 }
             case .other:
                 QuickLookViewer(url: url)
@@ -151,12 +154,12 @@ struct ViewerPane: View {
     private var placeholder: some View {
         VStack(spacing: 8) {
             Image(systemName: "eye")
-                .font(.system(size: 22))
+                .uiFont(22)
                 .foregroundStyle(.tertiary)
             Text(pane.selection.count > 1
                  ? "\(pane.selection.count) items selected"
                  : "Select a file to see it here")
-                .font(.system(size: 12))
+                .uiFont(12)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -365,6 +368,7 @@ private struct PDFViewer: NSViewRepresentable {
 
 private struct TextViewer: NSViewRepresentable {
     let url: URL
+    let zoom: CGFloat
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
@@ -373,7 +377,6 @@ private struct TextViewer: NSViewRepresentable {
         if let text = scroll.documentView as? NSTextView {
             text.isEditable = false
             text.isSelectable = true
-            text.font = .monospacedSystemFont(ofSize: 11.5, weight: .regular)
             text.textContainerInset = NSSize(width: 8, height: 8)
             text.drawsBackground = true
             text.backgroundColor = .textBackgroundColor
@@ -387,6 +390,7 @@ private struct TextViewer: NSViewRepresentable {
     private func fill(_ scroll: NSScrollView) {
         guard let view = scroll.documentView as? NSTextView else { return }
         view.string = TextFile.read(url)
+        view.font = .monospacedSystemFont(ofSize: 11.5 * zoom, weight: .regular)
         view.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
 }
@@ -402,11 +406,13 @@ private struct TextViewer: NSViewRepresentable {
 /// through a folder does not reload WebKit for every file.
 private struct PageViewer: NSViewRepresentable {
     let url: URL
+    let zoom: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
         let view = ViewerWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        view.pageZoom = zoom
         view.navigationDelegate = context.coordinator
         context.coordinator.view = view
         if let page = Bundle.main.url(forResource: "viewer", withExtension: "html",
@@ -426,6 +432,7 @@ private struct PageViewer: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
+        if view.pageZoom != zoom { view.pageZoom = zoom }
         context.coordinator.show(url)
     }
 
@@ -498,7 +505,7 @@ private struct PageViewer: NSViewRepresentable {
                 return
             }
             decisionHandler(.cancel)
-            NSWorkspace.shared.open(target)
+            Opening.open(target)
         }
     }
 }

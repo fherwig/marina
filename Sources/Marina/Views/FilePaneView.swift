@@ -4,17 +4,30 @@ import QuickLook
 
 struct FilePaneView: View {
     @EnvironmentObject var app: AppState
-    @ObservedObject var tab: TabState
+    /// Not observed: every change to the tab — which pane is active, above
+    /// all — would otherwise rebuild both file lists, cell by cell, and that
+    /// is what made switching panes slow. Only the header shows tab state
+    /// (see PaneHeader); everything else here reads it when an event runs.
+    let tab: TabState
     @ObservedObject var pane: PaneState
     let paneIndex: Int
     var focus: FocusState<FocusTarget?>.Binding
+    /// The terminal sits right under this pane, and its grip takes the place
+    /// of the bottom bar.
+    var terminalBelow = false
 
-    @State private var typeAhead = TypeAhead()
+    @State var typeAhead = TypeAhead()
     /// A real AppKit view inside this pane, for anchoring ⌥⌘O's menu.
     @StateObject private var anchor = PaneAnchorBox()
-    @State private var hoveringPath = false
-    @State private var pathCopied = false
-    @AppStorage("marina.terminalLeftOnly") private var terminalLeftOnly = false
+    @Environment(\.uiZoom) private var zoom
+
+    // The tile view's (TileGrid.swift): the cursor and marked tiles, how
+    // many fit across, and a count bumped to scroll the cursor into view.
+    @State var tileState = TileSelection()
+    @State var tileColumns = 1
+    @State var tileScrollGen = 0
+    @StateObject var tileHover = TileHover()
+    @AppStorage(Preferences.tileSizeKey) var tileSize = Preferences.defaultTileSize
 
     private var isActivePane: Bool {
         !tab.isDual || tab.activePaneIndex == paneIndex
@@ -22,86 +35,22 @@ struct FilePaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            pathBar
+            PaneHeader(tab: tab, pane: pane, paneIndex: paneIndex, activate: activateFromClick)
             Divider()
-            table
-            Divider()
-            statusBar
+            folderView
+            if !terminalBelow {
+                Divider()
+                statusBar
+            }
         }
+        // a click anywhere in the pane makes it the active one, there and then
+        .background(PaneClickWatcher { [tab, paneIndex] in
+            if tab.isDual, tab.activePaneIndex != paneIndex { tab.activePaneIndex = paneIndex }
+        })
         // NB: no tap gesture over the table — a SwiftUI gesture layered on top
         // of the NSTableView behind Table swallows the click that would select
         // a row. Clicking a pane makes it active through the selection change
         // (see activateFromClick) and through the path bar's own tap.
-    }
-
-    // MARK: - Path bar
-
-    private var pathBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(isActivePane ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
-            // The path is where you look for it, so it is where you take it
-            // from: a click on it copies the full path. Only the path text —
-            // a click anywhere else on the bar just makes the pane active, and
-            // must not overwrite files you have on the clipboard.
-            Text((pane.directory.path as NSString).abbreviatingWithTildeInPath)
-                .font(.system(size: 12, weight: isActivePane ? .semibold : .regular))
-                .foregroundStyle(isActivePane ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .underline(hoveringPath)
-                .lineLimit(1)
-                .truncationMode(.head)
-                .help("Click to copy \(pane.directory.path)")
-                .onHover { hoveringPath = $0 }
-                .onTapGesture {
-                    activateFromClick()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(pane.directory.path, forType: .string)
-                    pathCopied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathCopied = false }
-                }
-            if pathCopied {
-                Text("path copied")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
-            Spacer()
-            if pane.selection.count > 1 {
-                Text("\(pane.selection.count) selected")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            if pane.showHidden {
-                Text("hidden shown")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            if tab.isDual && paneIndex == 1 {
-                Button {
-                    tab.closeSecondPane()
-                } label: {
-                    Image(systemName: "xmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Close Second Pane (⌘1)")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        // clicking a pane's header is the explicit "work in this pane" gesture
-        .onTapGesture { activateFromClick() }
-        .overlay(alignment: .bottom) {
-            // unambiguous active-pane marker in dual-pane mode: this is the
-            // pane that ⌘J, ⌘C/⌘M, and the terminal follow
-            if tab.isDual && isActivePane {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
     }
 
     // MARK: - Table
@@ -112,7 +61,7 @@ struct FilePaneView: View {
                 let cell = HStack(spacing: 6) {
                     Image(nsImage: IconCache.icon(for: entry))
                         .resizable()
-                        .frame(width: 16, height: 16)
+                        .frame(width: 16 * zoom, height: 16 * zoom)
                     Text(entry.name)
                         .lineLimit(1)
                 }
@@ -138,12 +87,12 @@ struct FilePaneView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             // wide enough for "209 bytes": at 70 it read "209 b…"
-            .width(min: 60, ideal: 84, max: 110)
+            .width(min: 60 * zoom, ideal: 84 * zoom, max: 110 * zoom)
             TableColumn("Modified", value: \FileEntry.sortDate) { (entry: FileEntry) in
                 Text(entry.displayDate)
                     .foregroundStyle(.secondary)
             }
-            .width(min: 80, ideal: 110, max: 140)
+            .width(min: 80 * zoom, ideal: 110 * zoom, max: 140 * zoom)
         } rows: {
             // Dragging OUT lives on the row, not on the Name cell. A cell-level
             // .onDrag takes the mouse-down away from the table, so it had to
@@ -157,49 +106,24 @@ struct FilePaneView: View {
                     .itemProvider { NSItemProvider(object: entry.url as NSURL) }
             }
         }
-        // an unreadable folder and an empty one both show no rows; only this
-        // says which happened
-        .overlay {
-            if let failure = pane.failure, pane.entries.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "lock.slash")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.secondary)
-                    Text(failure.message)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    if failure.needsPermission {
-                        Text("Give Marina Full Disk Access in System Settings, then come back.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                        Button("Open Privacy Settings…") { AppState.openPrivacySettings() }
-                            .controlSize(.small)
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: 320)
-            }
-        }
+        // the rows' text, which names no size of its own. The table fits its
+        // rows to it, but stripes the empty space below them at its own row
+        // height, which SwiftUI resets to this minimum on every update; at
+        // 1.6× that was rows of 33pt over stripes of 24. 16 × zoom + 8 is the
+        // row the text makes: 24pt at 1×, as before (all measured).
+        .uiFont(13)
+        .environment(\.defaultMinListRowHeight, (16 * zoom + 8).rounded())
         .contextMenu(forSelectionType: String.self) { ids in
             contextMenuItems(for: ids)
         } primaryAction: { ids in
             open(ids: ids)
         }
         .focused(focus, equals: .pane(pane.id))
-        .background(PaneAnchor(box: anchor))
         // something outside the list chose a row (open -a Marina <file>):
         // bring it into view. onAppear covers a reveal into a brand-new tab,
         // which has already happened by the time this view exists.
         .onChange(of: pane.revealGen) { _, _ in scrollToSelectionSoon() }
         .onAppear { if pane.revealGen > 0 { scrollToSelectionSoon() } }
-        .onChange(of: app.openWithRequest) { _, request in
-            guard request?.pane == pane.id else { return }
-            // off the update: popUp runs its own event loop, and starting one
-            // inside a SwiftUI view update is asking for it to be dropped
-            DispatchQueue.main.async { showOpenWithMenu() }
-        }
         .onKeyPress(.return) { openSelection(); return .handled }
         .onKeyPress(.space) { toggleQuickLook(); return .handled }
         // taken off the table, which otherwise runs AppKit's own type-select
@@ -249,6 +173,54 @@ struct FilePaneView: View {
             tab.switchPane()
             return .handled
         }
+    }
+
+    // MARK: - List or tiles
+
+    /// The folder as a list or as tiles (⌘4), and what both do alike.
+    private var folderView: some View {
+        Group {
+            if pane.showsTiles { tiles } else { table }
+        }
+        // an unreadable folder and an empty one both show no rows; only this
+        // says which happened
+        .overlay {
+            if let failure = pane.failure, pane.entries.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "lock.slash")
+                        .uiFont(22)
+                        .foregroundStyle(.secondary)
+                    Text(failure.message)
+                        .uiFont(12)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    if failure.needsPermission {
+                        Text("Give Marina Full Disk Access in System Settings, then come back.")
+                            .uiFont(11)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                        Button("Open Privacy Settings…") { AppState.openPrivacySettings() }
+                            .controlSize(.small)
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 320)
+            }
+        }
+        .background(PaneAnchor(box: anchor))
+        .onChange(of: app.openWithRequest) { _, request in
+            guard request?.pane == pane.id else { return }
+            // off the update: popUp runs its own event loop, and starting one
+            // inside a SwiftUI view update is asking for it to be dropped
+            DispatchQueue.main.async { showOpenWithMenu() }
+        }
+        .onChange(of: app.quickLookRequest) { _, request in
+            guard request?.pane == pane.id else { return }
+            toggleQuickLook()
+        }
+        .onChange(of: pane.revealGen) { _, _ in
+            if pane.showsTiles { adoptSelection(scroll: true) }
+        }
         // accept file drops from Finder or the other pane (copies into this folder)
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
@@ -256,14 +228,10 @@ struct FilePaneView: View {
             app.drop(files, into: pane.directory)
             return true
         }
-        .onChange(of: focus.wrappedValue) { _, newFocus in
-            if newFocus == .pane(pane.id) {
-                tab.activePaneIndex = paneIndex
-            }
-        }
         // selecting a row with the mouse is also how the mouse hands this pane
         // the keyboard — the reliable backup when focus got stuck elsewhere
         .onChange(of: pane.selection) { _, _ in
+            if pane.showsTiles { adoptSelection() }
             activateFromClick()
             // an open Quick Look panel shows whatever is selected now
             QuickLook.shared.selectionChanged(in: pane)
@@ -288,18 +256,13 @@ struct FilePaneView: View {
 
     // MARK: - Status bar
 
-    /// The strip along the bottom of the pane is the terminal's resize grip:
-    /// all 8pt of it is the grab area, rather than the one-pixel line a split
-    /// divider gives you. It carries nothing — what used to live here says
-    /// more up in the path bar, and a file count was not worth a row of
-    /// chrome anywhere.
+    /// The strip along the bottom of the pane, when no terminal sits below it.
+    /// It carries nothing — what used to live here says more up in the path
+    /// bar, and a file count was not worth a row of chrome anywhere. With the
+    /// terminal below, its grip (TerminalGrip) takes this place.
     private var statusBar: some View {
         Color.clear
             .frame(height: 8)
-            .contentShape(Rectangle())
-            // with the terminal under the left pane only, the right pane's bar
-            // has no terminal beneath it to resize
-            .modifier(TerminalResizeGrip(tab: tab, enabled: !(terminalLeftOnly && paneIndex == 1)))
     }
 
     // MARK: - Open With
@@ -408,7 +371,7 @@ struct FilePaneView: View {
     // MARK: - Context menu
 
     @ViewBuilder
-    private func contextMenuItems(for ids: Set<String>) -> some View {
+    func contextMenuItems(for ids: Set<String>) -> some View {
         let entries = pane.entries.filter { ids.contains($0.id) }
         if entries.isEmpty {
             Button("New Folder") { activateThenRun { app.newFolderInActivePane() } }
@@ -419,6 +382,14 @@ struct FilePaneView: View {
                 .keyboardShortcut("2")
             Button(tab.viewerVisible ? "Close Viewer" : "Show Viewer") { tab.toggleViewer() }
                 .keyboardShortcut("3")
+            Button(pane.showsTiles ? "Show as List" : "Show as Tiles") { activateThenRun { app.toggleTiles() } }
+                .keyboardShortcut("4")
+            if pane.showsTiles {
+                Button("Bigger Tiles") { Preferences.stepTileSize(bigger: true) }
+                    .keyboardShortcut("+", modifiers: [.command, .option])
+                Button("Smaller Tiles") { Preferences.stepTileSize(bigger: false) }
+                    .keyboardShortcut("-", modifiers: [.command, .option])
+            }
             Button("cd Terminal Here") { activateThenRun { app.cdTerminal() } }
                 .keyboardShortcut("j")
             Button(app.clipboardIsCut ? "Paste — moves here" : "Paste") {
@@ -456,10 +427,13 @@ struct FilePaneView: View {
                 }
             }
             Button("Quick Look") { activateThenRun(on: ids) { toggleQuickLook() } }
+                .keyboardShortcut("y")
             Button(tab.viewerVisible ? "Close Viewer" : "Show in Viewer") {
                 activateThenRun(on: ids) { tab.toggleViewer() }
             }
             .keyboardShortcut("3")
+            Button(pane.showsTiles ? "Show as List" : "Show as Tiles") { activateThenRun(on: ids) { app.toggleTiles() } }
+                .keyboardShortcut("4")
             Button("New Markdown File") { activateThenRun(on: ids) { app.newMarkdownInActivePane() } }
                 .keyboardShortcut("n")
             Divider()
@@ -490,7 +464,7 @@ struct FilePaneView: View {
     /// Make this the pane that ⌘J & friends aim at, and give it the keyboard —
     /// unless another unit is driving it: the sidebar navigating a favourite,
     /// the terminal following a `cd`, or the rename sheet holding the field.
-    private func activateFromClick() {
+    func activateFromClick() {
         guard app.renameTarget == nil, !app.tabBarActive,
               focus.wrappedValue != .sidebar,
               app.activeTab?.terminalHasFocus != true else { return }
@@ -504,7 +478,10 @@ struct FilePaneView: View {
     /// unit: the sidebar and the tab bar stay in charge while the user is
     /// arrowing through them (switching tabs rebuilds the panes below).
     private func claimFocus() {
-        guard !app.tabBarActive else { return }
+        // nor out of a terminal that was just handed the keyboard — going to a
+        // Claude session switches tabs and focuses its terminal, and this
+        // pane's delayed claim used to take the keyboard straight back
+        guard !app.tabBarActive, !tab.terminalHasFocus else { return }
         switch focus.wrappedValue {
         case .sidebar, .tabBar: return
         default: focus.wrappedValue = .pane(pane.id)
@@ -534,7 +511,7 @@ struct FilePaneView: View {
         openSelection()
     }
 
-    private func openSelection() {
+    func openSelection() {
         tab.activePaneIndex = paneIndex
         let sel = pane.selectedEntries
         if sel.count == 1, sel[0].isNavigable {
@@ -542,7 +519,7 @@ struct FilePaneView: View {
             return
         }
         for e in sel where !e.isNavigable {
-            NSWorkspace.shared.open(e.url)
+            Opening.open(e.url)
         }
     }
 
@@ -555,8 +532,10 @@ struct FilePaneView: View {
 
     /// Space. The panel is driven through AppKit (see QuickLook) so that ↑ / ↓
     /// inside it walk the file list, as they do in Finder.
-    private func toggleQuickLook() {
-        QuickLook.shared.toggle(for: pane) { delta in step(by: delta) }
+    func toggleQuickLook() {
+        QuickLook.shared.toggle(for: pane) { delta in
+            if pane.showsTiles { tileStep(by: delta) } else { step(by: delta) }
+        }
     }
 
     /// One row up or down from the selection, as the table's own arrow keys
@@ -572,54 +551,122 @@ struct FilePaneView: View {
     }
 }
 
-/// Drag the pane's bottom bar to size the terminal: up grows it, down shrinks
-/// it. Live only while the terminal is showing and not taking the whole tab.
-private struct TerminalResizeGrip: ViewModifier {
-    @ObservedObject var tab: TabState
-    var enabled = true
-    @State private var startHeight: CGFloat?
-    @State private var hovering = false
-
-    private var active: Bool {
-        enabled && tab.terminalVisible && !tab.terminalMaximized && tab.terminal != nil
-    }
-
-    func body(content: Content) -> some View {
-        if active {
-            content
-                .onHover { inside in
-                    guard inside != hovering else { return }
-                    hovering = inside
-                    if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-                }
-                // a stuck resize cursor is worse than no cursor at all
-                .onDisappear { if hovering { NSCursor.pop(); hovering = false } }
-                .gesture(
-                    // .global, not the default .local: "local" is this bar,
-                    // and the bar moves as you drag it — so the frame the
-                    // translation is measured in chases the pointer and the
-                    // bar travels a fraction of the distance the mouse does.
-                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .onChanged { value in
-                            if startHeight == nil {
-                                startHeight = tab.terminalHeight
-                                    ?? tab.terminal?.defaultHeight
-                                    ?? TabState.minTerminalHeight
-                            }
-                            // clamp as we go, so dragging past the limit does
-                            // not bank travel that has to be undone first
-                            tab.terminalHeight = tab.clampTerminalHeight(
-                                (startHeight ?? 0) - value.translation.height
-                            )
-                        }
-                        .onEnded { _ in startHeight = nil }
-                )
-        } else {
-            content
-        }
+/// A pane is the same pane while it shows the same PaneState in the same
+/// place, with or without a terminal under it. The focus binding is left out on
+/// purpose: SwiftUI sees it as new every time the window redraws, so without
+/// this every focus move rebuilt both file lists. It always points at the same
+/// FocusState, so the binding a pane already holds stays good. Changes to the
+/// pane itself still redraw it — those come through @ObservedObject, not
+/// through this comparison.
+extension FilePaneView: Equatable {
+    nonisolated static func == (a: FilePaneView, b: FilePaneView) -> Bool {
+        a.tab === b.tab && a.pane === b.pane && a.paneIndex == b.paneIndex
+            && a.terminalBelow == b.terminalBelow
     }
 }
 
+/// The pane's path bar — the one part of a pane that shows which pane is
+/// active, so the one part that has to watch the tab.
+private struct PaneHeader: View {
+    @ObservedObject var tab: TabState
+    @ObservedObject var pane: PaneState
+    let paneIndex: Int
+    /// FilePaneView's activateFromClick
+    let activate: () -> Void
+
+    @State private var hoveringPath = false
+    @State private var pathCopied = false
+    @AppStorage(Preferences.tileSizeKey) private var tileSize = Preferences.defaultTileSize
+    @Environment(\.uiZoom) private var zoom
+
+    private var isActivePane: Bool {
+        !tab.isDual || tab.activePaneIndex == paneIndex
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .uiFont(11)
+                .foregroundStyle(isActivePane ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+            // The path is where you look for it, so it is where you take it
+            // from: a click on it copies the full path. Only the path text —
+            // a click anywhere else on the bar just makes the pane active, and
+            // must not overwrite files you have on the clipboard.
+            Text((pane.directory.path as NSString).abbreviatingWithTildeInPath)
+                .uiFont(12, weight: isActivePane ? .semibold : .regular)
+                .foregroundStyle(isActivePane ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .underline(hoveringPath)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .help("Click to copy \(pane.directory.path)")
+                .onHover { hoveringPath = $0 }
+                .onTapGesture {
+                    activate()
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(pane.directory.path, forType: .string)
+                    pathCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { pathCopied = false }
+                }
+            if pathCopied {
+                Text("path copied")
+                    .uiFont(10)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+            Spacer()
+            if pane.selection.count > 1 {
+                Text("\(pane.selection.count) selected")
+                    .uiFont(10)
+                    .foregroundStyle(.tertiary)
+            }
+            if pane.showHidden {
+                Text("hidden shown")
+                    .uiFont(10)
+                    .foregroundStyle(.tertiary)
+            }
+            if pane.showsTiles {
+                // tile size, for every pane showing tiles
+                HStack(spacing: 4) {
+                    Image(systemName: "square.grid.3x3.fill")
+                        .uiFont(8)
+                        .foregroundStyle(.tertiary)
+                    Slider(value: $tileSize, in: Preferences.tileSizes)
+                        .controlSize(.mini)
+                        .frame(width: 90 * zoom)
+                        .accessibilityLabel("Tile size")
+                    Image(systemName: "square.fill")
+                        .uiFont(11)
+                        .foregroundStyle(.tertiary)
+                }
+                .help("Tile size (⌥⌘+ / ⌥⌘−)")
+            }
+            if tab.isDual && paneIndex == 1 {
+                Button {
+                    tab.closeSecondPane()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close Second Pane (⌘1)")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        // clicking a pane's header is the explicit "work in this pane" gesture
+        .onTapGesture { activate() }
+        .overlay(alignment: .bottom) {
+            // unambiguous active-pane marker in dual-pane mode: this is the
+            // pane that ⌘J, ⌘C/⌘M, and the terminal follow
+            if tab.isDual && isActivePane {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+    }
+}
 
 /// Closure target for the programmatic Open With menu items.
 private final class OpenWithAction: NSObject {
@@ -632,7 +679,7 @@ private final class OpenWithAction: NSObject {
 /// the active application, so a menu anchored through it silently fails to
 /// appear; anchoring to a view that is actually in this pane cannot.
 /// A folder row that accepts a drop, and shows that it will.
-private struct FolderDropTarget<Content: View>: View {
+struct FolderDropTarget<Content: View>: View {
     @EnvironmentObject var app: AppState
     let folder: URL
     @ViewBuilder let content: () -> Content
@@ -650,6 +697,52 @@ private struct FolderDropTarget<Content: View>: View {
                 app.drop(files, into: folder)
                 return true
             } isTargeted: { targeted = $0 }
+    }
+}
+
+/// Sees every mouse-down inside the pane without taking any of them.
+///
+/// Clicking into the other pane used to make it active only indirectly: through
+/// the selection changing — which a click on the row already selected does not
+/// do, and which is ignored while the sidebar or a terminal still has the
+/// keyboard — or through SwiftUI noticing the table took focus, which it does
+/// not always. So the folder icon and the path sometimes stayed on the pane you
+/// had left. A local event monitor sees the click itself.
+private struct PaneClickWatcher: NSViewRepresentable {
+    let onMouseDown: () -> Void
+
+    func makeNSView(context: Context) -> WatcherView {
+        let view = WatcherView()
+        view.onMouseDown = onMouseDown
+        return view
+    }
+
+    func updateNSView(_ view: WatcherView, context: Context) {
+        view.onMouseDown = onMouseDown
+    }
+
+    final class WatcherView: NSView {
+        var onMouseDown: (() -> Void)?
+        private var monitor: Any?
+
+        // never the target of a click itself: the table and the bar above it
+        // still get every one
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, event.window === self.window else { return }
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    if self.bounds.contains(point) { self.onMouseDown?() }
+                }
+                return event
+            }
+        }
     }
 }
 

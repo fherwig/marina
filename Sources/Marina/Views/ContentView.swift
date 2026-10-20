@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var app: AppState
     @FocusState private var focus: FocusTarget?
+    @AppStorage(UIZoom.key) private var zoom = 1.0
 
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(
@@ -10,7 +11,7 @@ struct ContentView: View {
             set: { app.sidebarVisible = ($0 != .detailOnly) }
         )) {
             SidebarView(focus: $focus)
-                .navigationSplitViewColumnWidth(min: 150, ideal: 190, max: 300)
+                .navigationSplitViewColumnWidth(min: 150 * zoom, ideal: 190 * zoom, max: 300 * zoom)
         } detail: {
             VStack(spacing: 0) {
                 if app.tabBarVisible {
@@ -46,37 +47,40 @@ struct ContentView: View {
                     Button { app.toggleTerminal() } label: { Image(systemName: "terminal") }
                         .help("Terminal (⌘`)")
                         .accessibilityLabel("Terminal")
-                    Button { app.helpVisible.toggle() } label: { Image(systemName: "questionmark.circle") }
+                    Button { HelpPanel.shared.toggle(beside: NSApp.keyWindow) } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
                         .help("Keyboard Help (⌃⌘H)")
                         .accessibilityLabel("Keyboard Help")
-                        .popover(isPresented: $app.helpVisible, arrowEdge: .bottom) {
-                            HelpView()
-                        }
                 }
             }
         }
+        // ⌘+ / ⌘−, for every view that sizes its text through uiFont
+        .environment(\.uiZoom, zoom)
         .onAppear {
+            app.moveFocus = { target in
+                // defer past the current key-event cycle; a synchronous focus
+                // move from inside another view's key handler is silently
+                // dropped. The next turn of the run loop is enough — the fixed
+                // 50 ms wait that used to sit on top of it was felt.
+                DispatchQueue.main.async {
+                    focus = target
+                }
+            }
             app.bootstrap()
         }
-        .onChange(of: app.focusRequest) { _, request in
-            guard let request else { return }
-            // defer past the current key-event cycle; a synchronous focus move
-            // from inside another view's key handler is silently dropped
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                focus = request.target
-            }
-        }
-        // ⌘-arrow moves are decided against where the keyboard actually is
         .onChange(of: focus) { _, target in
-            app.focusedTarget = target
+            app.focusMoved(to: target)
         }
         .sheet(item: $app.renameTarget) { request in
             RenameSheet(request: request)
                 .environmentObject(app)
+                .environment(\.uiZoom, zoom)
         }
         .sheet(item: $app.sectionPrompt) { prompt in
             SectionNameSheet(prompt: prompt)
                 .environmentObject(app)
+                .environment(\.uiZoom, zoom)
         }
         .alert("Close this tab?", isPresented: Binding(
             get: { app.closeTabPrompt != nil },
@@ -107,6 +111,7 @@ struct RenameSheet: View {
     let request: RenameRequest
     @State private var name: String
     @State private var committed = false
+    @Environment(\.uiZoom) private var zoom
 
     init(request: RenameRequest) {
         self.request = request
@@ -116,10 +121,11 @@ struct RenameSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(request.headline)
-                .font(.headline)
+                .uiFont(13, weight: .bold)
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 280)
+                .uiFont(13)
+                .frame(width: 280 * zoom)
                 .onSubmit { commit() }
             HStack {
                 Spacer()
@@ -148,6 +154,7 @@ struct SectionNameSheet: View {
     @Environment(\.dismiss) private var dismiss
     let prompt: SectionPrompt
     @State private var name: String
+    @Environment(\.uiZoom) private var zoom
 
     init(prompt: SectionPrompt) {
         self.prompt = prompt
@@ -157,10 +164,11 @@ struct SectionNameSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(prompt.headline)
-                .font(.headline)
+                .uiFont(13, weight: .bold)
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 240)
+                .uiFont(13)
+                .frame(width: 240 * zoom)
                 .onSubmit { commit() }
             HStack {
                 Spacer()

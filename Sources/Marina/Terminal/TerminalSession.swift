@@ -10,6 +10,9 @@ import SwiftTerm
 /// focus, and ⌘C copied files instead of the selected text. A click is a click:
 /// it gives this view the keyboard, like clicking a pane does.
 final class MarinaTerminalView: LocalProcessTerminalView {
+    /// Its session, for dictation into the terminal with the keyboard.
+    weak var session: TerminalSession?
+
     /// The Mouse Reporting setting. `allowMouseReporting` itself is that
     /// setting, set aside while text is selected — see selectionChanged.
     var mouseReportingWanted = true {
@@ -39,6 +42,43 @@ final class MarinaTerminalView: LocalProcessTerminalView {
     private func applyMouseReporting() {
         allowMouseReporting = mouseReportingWanted && !selectionActive
     }
+
+    /// Whether the colours in use are the light ones; nil before the first
+    /// look is applied.
+    private var appliedLight: Bool?
+
+    /// Settings ▸ Terminal: font, size and colours, at the current zoom.
+    /// SwiftTerm otherwise takes the system text colours, where "white" is
+    /// NSColor.textColor — about 85% white on a near-black grey. A real
+    /// terminal palette (plain white on black, or black on white) reads much
+    /// better.
+    func applyLook() {
+        let font = Preferences.terminalFont()
+        // a new font re-lays the grid, tells the program its new size and
+        // drops the selection, so only when it really is a new one
+        if font != self.font { self.font = font }
+        let light: Bool
+        switch Preferences.terminalColours {
+        case .dark: light = false
+        case .light: light = true
+        case .system: light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
+        }
+        guard light != appliedLight else { return }
+        appliedLight = light
+        let text: NSColor = light ? .black : .white
+        let paper: NSColor = light ? .white : .black
+        nativeForegroundColor = text
+        nativeBackgroundColor = paper
+        caretColor = text
+        // SwiftTerm paints the layer once, when it sets up
+        layer?.backgroundColor = paper.cgColor
+    }
+
+    /// Light or dark with the Mac, when Settings says so.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if Preferences.terminalColours == .system { applyLook() }
+    }
 }
 
 final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalViewDelegate, NSMenuDelegate {
@@ -61,14 +101,14 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
         view = MarinaTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         super.init()
         view.processDelegate = self
-        // SwiftTerm otherwise takes the system text colours, where "white" is
-        // NSColor.textColor — about 85% white on a near-black grey. A real
-        // terminal palette (plain white on black) reads much better, and it
-        // stays readable if the Mac is in light appearance.
-        view.nativeForegroundColor = .white
-        view.nativeBackgroundColor = .black
-        view.caretColor = .white
-        view.font = Self.terminalFont()
+        view.session = self
+        view.applyLook()
+        // ⌘+ / ⌘−, and Settings: SwiftTerm re-lays the grid at the new font
+        // and tells the program its new size, as a window resize would
+        for name in [UIZoom.changed, Preferences.terminalLookChanged] {
+            NotificationCenter.default.addObserver(self, selector: #selector(lookChanged),
+                                                   name: name, object: nil)
+        }
         view.menu = contextMenu()
         view.mouseReportingWanted = Self.storedMouseReporting
         // ⌘-combinations are menu equivalents and never reach the shell; ⌘V is
@@ -134,20 +174,7 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
         )
     }
 
-    /// SF Mono at medium weight — thicker stems than the default regular, which
-    /// is what actually carries contrast on black. Override without rebuilding:
-    ///   defaults write org.fherwig.marina marina.terminalFont Menlo-Bold
-    ///   defaults write org.fherwig.marina marina.terminalFontSize 13
-    private static func terminalFont() -> NSFont {
-        let defaults = UserDefaults.standard
-        let stored = defaults.double(forKey: "marina.terminalFontSize")
-        let size = stored > 0 ? CGFloat(stored) : 12.5
-        if let name = defaults.string(forKey: "marina.terminalFont"),
-           let font = NSFont(name: name, size: size) {
-            return font
-        }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
-    }
+    @objc private func lookChanged() { view.applyLook() }
 
     /// Height of a classic 40-row terminal at the current font. Columns follow
     /// the pane width, so there is no matching default width.
@@ -158,6 +185,35 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
 
     func send(_ text: String) {
         view.send(txt: text)
+    }
+
+    /// The terminal's tty, as tmux names its clients ("/dev/ttys012").
+    var ttyPath: String? {
+        guard let fd = view.process?.childfd, fd >= 0, let name = ptsname(fd) else { return nil }
+        return String(cString: name)
+    }
+
+    /// The login shell's pid, once it is running.
+    var shellPid: Int32? {
+        guard let pid = view.process?.shellPid, pid > 0 else { return nil }
+        return pid
+    }
+
+    /// Text typed on the user's behalf — dictation. It counts as typing, so
+    /// an automatic cd never lands on a half-dictated line.
+    func type(_ text: String) {
+        typedSincePrompt = true
+        view.send(txt: text)
+    }
+
+    /// The character left of the cursor, or nil at the start of the line or
+    /// in an empty cell.
+    var characterBeforeCursor: Character? {
+        let terminal = view.getTerminal()
+        let cursor = terminal.getCursorLocation()
+        guard cursor.x > 0, let character = terminal.getCharacter(col: cursor.x - 1, row: cursor.y),
+              character != "\u{0}" else { return nil }
+        return character
     }
 
     /// Ctrl-U first so a half-typed command does not swallow the cd.
@@ -206,7 +262,11 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
     }
 
     private static func quote(_ url: URL) -> String {
-        "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        quote(url.path)
+    }
+
+    static func quote(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func focusTerminal() {
@@ -241,6 +301,8 @@ final class TerminalSession: NSObject, ObservableObject, LocalProcessTerminalVie
             objectWillChange.send()
             view.mouseReportingWanted = newValue
             UserDefaults.standard.set(newValue, forKey: Self.mouseReportingKey)
+            // menus and Settings run on the main thread
+            MainActor.assumeIsolated { MenuRefresh.shared.changed() }
         }
     }
 

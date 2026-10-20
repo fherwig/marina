@@ -8,6 +8,7 @@ import SwiftUI
 struct TabBarView: View {
     @EnvironmentObject var app: AppState
     var focus: FocusState<FocusTarget?>.Binding
+    @Environment(\.uiZoom) private var zoom
 
     private var isFocused: Bool { app.tabBarActive }
 
@@ -25,7 +26,7 @@ struct TabBarView: View {
                 app.newTab()
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
+                    .uiFont(11, weight: .medium)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 6)
@@ -33,7 +34,7 @@ struct TabBarView: View {
             Spacer()
         }
         .padding(.horizontal, 8)
-        .frame(height: 30)
+        .frame(height: 30 * zoom)
         .background(.bar)
         .contentShape(Rectangle())
         .focusable()
@@ -49,40 +50,17 @@ private struct TabButton: View {
     let isActive: Bool
     let barFocused: Bool
 
-    private var highlighted: Bool { isActive && barFocused }
-
     var body: some View {
-        HStack(spacing: 5) {
-            Text(tab.title)
-                .font(.system(size: 12, weight: isActive ? .medium : .regular))
-                .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .lineLimit(1)
-            if tab.terminal != nil {
-                Image(systemName: "terminal")
-                    .font(.system(size: 9))
-                    .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-            }
-            if isActive && app.tabs.count > 1 {
-                Button {
-                    app.closeTab(index)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-                }
-                .buttonStyle(.plain)
-                .help("Close Tab (⌘W)")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(
-            highlighted
-                ? AnyShapeStyle(Color.accentColor)
-                : (isActive ? AnyShapeStyle(.selection.opacity(0.18)) : AnyShapeStyle(.clear)),
-            in: RoundedRectangle(cornerRadius: 5)
+        TabChip(
+            title: tab.title,
+            hasTerminal: tab.hasTerminal,
+            isActive: isActive,
+            barFocused: barFocused,
+            showClose: isActive && app.tabs.count > 1,
+            onClose: { app.closeTab(index) }
         )
         .contentShape(Rectangle())
+        .help(tab.activePane.directory.path)
         .onTapGesture { app.selectTab(index) }
         .contextMenu {
             Button("Close Tab") { app.closeTab(index) }

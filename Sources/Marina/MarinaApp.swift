@@ -17,6 +17,8 @@ struct MarinaApp: App {
         }
         .defaultSize(width: 1150, height: 720)
         .commands { MarinaCommands() }
+        // Marina ▸ Settings… (⌘,)
+        Settings { SettingsView() }
     }
 }
 
@@ -38,6 +40,32 @@ struct RootView: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminalKeyMonitor: Any?
+    private var zoomKeyMonitor: Any?
+
+    /// `open -a Marina <path>` while Marina was running made a NEW, empty
+    /// window at the home folder and put the path in a tab of the window
+    /// behind it (2026-10-15: "it will open a new marina window but not switch
+    /// the file"). AppKit hands the open-documents event to SwiftUI, and
+    /// SwiftUI answers it with a window of its WindowGroup whatever
+    /// application(_:open:) then does with the URLs; neither
+    /// handlesExternalEvents setting stops that for a file. Taking the event
+    /// here, before SwiftUI sees it, leaves the routing to OpenRequests. This
+    /// is the documented place: AppKit's own handlers are installed by now.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(openDocuments(_:withReply:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+    }
+
+    @objc private func openDocuments(_ event: NSAppleEventDescriptor,
+                                     withReply reply: NSAppleEventDescriptor) {
+        guard let list = event.paramDescriptor(forKeyword: keyDirectObject) else { return }
+        // one path arrives as a single descriptor, several as a list (1-based)
+        let items = list.numberOfItems == 0
+            ? [list] : (1...list.numberOfItems).compactMap { list.atIndex($0) }
+        let urls = items.compactMap(\.fileURLValue)
+        MainActor.assumeIsolated { OpenRequests.shared.receive(urls) }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if GuideShots.isActive {
@@ -53,6 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Marina inside the first one, which is exactly not the point.
         NSWindow.allowsAutomaticWindowTabbing = false
         watchTerminalKey()
+        watchZoomKey()
+        // hold Space to dictate, when Settings ▸ Voice says so
+        MainActor.assumeIsolated { Dictation.install() }
+        // a request that launched Marina may still be waiting for a window
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { OpenRequests.shared.launchFinished() }
+        }
     }
 
     /// `open -a Marina <folder>`, Finder's "Open With", a drop on the Dock
@@ -90,7 +125,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// ⌘= zooms in as well, as in every browser. Zoom In's menu key is "+",
+    /// which a German keyboard types directly but a US one only as ⇧=. Plain
+    /// ⌘ only, so ⌘⇧0 (= on a German keyboard) is left alone.
+    private func watchZoomKey() {
+        zoomKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            guard event.charactersIgnoringModifiers == "=" else { return event }
+            switch event.modifierFlags.intersection(.deviceIndependentFlagsMask) {
+            case [.command]: MainActor.assumeIsolated { UIZoom.zoomIn() }
+            // ⌥⌘= for Bigger Tiles, as ⌘= for Zoom In
+            case [.command, .option]: Preferences.stepTileSize(bigger: true)
+            default: return event
+            }
+            return nil
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { Dictation.shutDown() }
+    }
 
     // MARK: - Quick Look
 

@@ -10,7 +10,8 @@ final class PaneState: ObservableObject, Identifiable {
     /// Why this folder is empty, when it is empty because it could not be read.
     @Published private(set) var failure: FileEntry.Listing.Failure?
     @Published var selection = Set<String>()
-    @Published var showHidden = false {
+    /// ⇧⌘. for this pane; each new pane starts as Settings says.
+    @Published var showHidden = Preferences.showHidden {
         didSet { reload() }
     }
     /// Newest first: what you are after in a folder is usually what changed
@@ -24,6 +25,14 @@ final class PaneState: ObservableObject, Identifiable {
         didSet { entries = Self.applySort(entries, order: sortOrder) }
     }
 
+    /// Tiles or the list, as this folder was last shown (see Preferences).
+    @Published private(set) var showsTiles = false
+
+    func setTiles(_ on: Bool) {
+        Preferences.setShowsTiles(on, for: directory)
+        showsTiles = on
+    }
+
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
     private var watcher: DirectoryWatcher?
@@ -33,6 +42,7 @@ final class PaneState: ObservableObject, Identifiable {
 
     init(directory: URL) {
         self.directory = Self.resolved(directory)
+        showsTiles = Preferences.showsTiles(self.directory)
         reload()
         selectFirst()
         startWatching()
@@ -69,6 +79,7 @@ final class PaneState: ObservableObject, Identifiable {
             forwardStack.removeAll()
         }
         directory = std
+        showsTiles = Preferences.showsTiles(std)
         reload()
         selectFirst()
         startWatching()

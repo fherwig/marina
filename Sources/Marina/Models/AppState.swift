@@ -10,11 +10,6 @@ enum FocusTarget: Hashable {
     case pane(UUID)
 }
 
-struct FocusRequest: Equatable {
-    let target: FocusTarget
-    let gen: Int
-}
-
 /// ⌥⌘O asking a particular pane to put its Open With menu on screen — the
 /// pane owns the geometry the menu has to be anchored to, the menu bar does
 /// not.
@@ -61,7 +56,9 @@ struct SectionPrompt: Identifiable {
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var tabs: [TabState] = []
-    @Published var activeTabIndex = 0
+    @Published var activeTabIndex = 0 {
+        didSet { MenuRefresh.shared.changed() }
+    }
     /// Shared by every window — see FavouritesStore.
     var favourites: [URL] { FavouritesStore.shared.items }
     /// The same favourites grouped into the user's own sections.
@@ -71,10 +68,16 @@ final class AppState: ObservableObject {
     var claudeSessionsScanning: Bool { ClaudeSessionsStore.shared.scanning }
     /// Mounted volumes and cloud drives — see VolumesStore.
     var volumes: [Volume] { VolumesStore.shared.volumes }
-    @Published var focusRequest: FocusRequest?
+    /// Moves the keyboard; installed by this window's ContentView, which owns
+    /// the FocusState. A direct call rather than a published request: a
+    /// published one costs a full re-render of both panes before it is even
+    /// seen, and that is most of what made switching panes slow.
+    var moveFocus: ((FocusTarget) -> Void)?
     /// Where the keyboard actually is (kept in sync by ContentView); the
-    /// ⌘-arrow moves need it to know which unit they are leaving.
-    @Published var focusedTarget: FocusTarget?
+    /// ⌘-arrow moves need it to know which unit they are leaving. Not
+    /// published: nothing draws it, and publishing it re-rendered every view
+    /// twice more after each focus change.
+    var focusedTarget: FocusTarget?
     /// True while the keyboard is "in" the tab strip. The strip is chrome that
     /// comes and goes, and a freshly inserted SwiftUI view does not reliably
     /// accept programmatic focus — so this mode owns its keys through an event
@@ -87,11 +90,12 @@ final class AppState: ObservableObject {
     @Published var closeTabPrompt: CloseTabPrompt?
     @Published var openWithRequest: OpenWithRequest?
     private var openWithGen = 0
+    /// ⌘Y asking the active pane for Quick Look: the pane drives the panel,
+    /// since it moves its own selection when the arrows reach the panel.
+    @Published var quickLookRequest: OpenWithRequest?
     @Published var errorMessage: String?
     @Published var sidebarVisible = true
-    @Published var helpVisible = false
 
-    private var focusGen = 0
     private var favouritesObserver: AnyCancellable?
     private var claudeObserver: AnyCancellable?
     private var volumesObserver: AnyCancellable?
@@ -117,20 +121,31 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Every window starts at home. It used to reopen the last folder any pane
-    /// had visited — which was whichever pane happened to move last, so Marina
-    /// came up in Screenshots or a temp folder with no way to predict which.
-    /// Home is the same every time, and the sidebar is one ⌘0 away from there.
+    /// Every window starts at home, or the folder Settings names. It used to
+    /// reopen the last folder any pane had visited — which was whichever pane
+    /// happened to move last, so Marina came up in Screenshots or a temp
+    /// folder with no way to predict which. A fixed folder is the same every
+    /// time, and the sidebar is one ⌘0 away from there.
     func bootstrap() {
         guard tabs.isEmpty else { return }
-        newTab(at: FileManager.default.homeDirectoryForCurrentUser)
+        newTab(at: Preferences.startFolder)
     }
 
     func requestFocus(_ target: FocusTarget) {
         // any focus move elsewhere leaves the tab strip
         if target != .tabBar { leaveTabBar(focusPane: false) }
-        focusGen += 1
-        focusRequest = FocusRequest(target: target, gen: focusGen)
+        moveFocus?(target)
+    }
+
+    /// ContentView reports every focus change here. The ⌘-arrow moves are
+    /// decided against where the keyboard actually is, and the pane that has
+    /// it — however it got there — is the active one.
+    func focusMoved(to target: FocusTarget?) {
+        focusedTarget = target
+        guard case .pane(let id) = target, let tab = activeTab,
+              let index = tab.panes.firstIndex(where: { $0.id == id }),
+              tab.activePaneIndex != index else { return }
+        tab.activePaneIndex = index
     }
 
     func focusActivePane() {
@@ -269,7 +284,7 @@ final class AppState: ObservableObject {
         guard tabs.indices.contains(index) else { return }
         // closing the tab ends the terminal's processes, so anything still
         // running in it gets a say first
-        if !force, let program = tabs[index].terminal?.runningProgram {
+        if !force, let program = tabs[index].runningProgram {
             closeTabPrompt = CloseTabPrompt(tab: tabs[index].id, program: program)
             return
         }
@@ -374,7 +389,7 @@ final class AppState: ObservableObject {
             return
         }
         for e in sel where !e.isNavigable {
-            NSWorkspace.shared.open(e.url)
+            Opening.open(e.url)
         }
     }
 
@@ -394,6 +409,20 @@ final class AppState: ObservableObject {
 
     func toggleHidden() {
         activePane?.showHidden.toggle()
+    }
+
+    /// ⌘4: this folder as tiles, or back to the list.
+    func toggleTiles() {
+        guard let pane = activePane else { return }
+        pane.setTiles(!pane.showsTiles)
+    }
+
+    /// ⌘Y, and Space in the list.
+    func quickLook() {
+        guard !editKeysBelongToText, let pane = activePane,
+              !pane.selectedEntries.isEmpty else { return }
+        openWithGen += 1
+        quickLookRequest = OpenWithRequest(pane: pane.id, gen: openWithGen)
     }
 
     // MARK: - Panes
@@ -437,6 +466,94 @@ final class AppState: ObservableObject {
     }
 
     func cdTerminal() { activeTab?.sendTerminalCD() }
+
+    /// Click / Return on a Claude Sessions row: bring up the session itself,
+    /// not just its folder.
+    ///
+    /// 1. A Marina tab already shows it — the session runs in that tab's shell,
+    ///    or a tmux client attached to it does: switch to the tab (in whichever
+    ///    window) and put the keyboard in its terminal.
+    /// 2. A tmux session no Marina tab shows: attached here, in the active
+    ///    pane's terminal, on the session's own pane — Marina does not open
+    ///    tabs on its own. A terminal already showing tmux switches over; one
+    ///    busy with anything else is left alone.
+    /// 3. A session started in another app's terminal: bring that app forward.
+    ///    Marina cannot reach into another terminal's window, and resuming the
+    ///    session here would fork its conversation.
+    func goToSession(_ session: ClaudeSession) {
+        let hostList = ClaudeSessionScan.hosts(of: session)
+        let hosts = Set(hostList)
+        for state in MarinaWindows.shared.all {
+            for (index, tab) in state.tabs.enumerated() {
+                // either of the tab's terminals — with Terminal per Pane the
+                // right pane has its own
+                guard let slot = [TabState.Slot.main, .second].first(where: { slot in
+                    tab.session(slot)?.shellPid.map(hosts.contains) ?? false
+                }) else { continue }
+                if state !== self {
+                    MarinaWindows.shared.window(for: state)?.makeKeyAndOrderFront(nil)
+                }
+                state.leaveTabBar(focusPane: false)
+                state.selectTab(index, focusPane: false)
+                // the pane above the terminal becomes active, so ⌘↓ below
+                // lands in the right one
+                if tab.terminalPerPane {
+                    if slot == .second, !tab.isDual { tab.openInSecondPane(session.directory) }
+                    tab.activePaneIndex = slot == .second ? 1 : 0
+                }
+                // and the pane above it shows the session's folder, however
+                // far it was browsed away since
+                tab.activePane.navigate(to: session.directory)
+                tab.enterTerminal()
+                return
+            }
+        }
+        if let name = session.tmuxSession, let tmux = ClaudeSessionScan.tmux, let tab = activeTab {
+            // here, in the active pane's terminal — Marina does not open tabs
+            // on its own
+            let slot = tab.activeSlot
+            let target = "=" + name
+            // the folder first: a terminal opened below starts its shell in the
+            // pane's folder, and that shell's first prompt reports its folder —
+            // which, were it the old one, would take the pane straight back
+            tab.activePane.navigate(to: session.directory)
+            let terminal = tab.session(slot)
+            if let terminal, terminal.runningProgram == "tmux", let tty = terminal.ttyPath {
+                // already showing a tmux session: move that client over
+                var args = ["switch-client", "-c", tty, "-t", target]
+                if let pane = session.tmuxPane {
+                    args += [";", "select-window", "-t", pane, ";", "select-pane", "-t", pane]
+                }
+                ClaudeSessionScan.runTmux(args)
+                tab.markTmuxSwitched(slot, to: name)
+            } else if let terminal, let program = terminal.runningProgram {
+                // never typed into something else that is running
+                errorMessage = "The terminal is busy with \(program). Quit it, or switch to the other pane, to open \(name) here."
+                return
+            } else {
+                let openedForIt = terminal == nil
+                tab.ensureTerminal(slot)
+                var command = "\(tmux) attach -t \(TerminalSession.quote(target))"
+                if let pane = session.tmuxPane {
+                    command += " \\; select-window -t \(pane) \\; select-pane -t \(pane)"
+                }
+                // Ctrl-U first, so a half-typed line does not swallow it
+                tab.session(slot)?.send("\u{15}" + command + "\n")
+                tab.markTmuxAttached(slot, session: name, openedForIt: openedForIt)
+            }
+            leaveTabBar(focusPane: false)
+            tab.enterTerminal()
+            return
+        }
+        let owner = hostList.lazy
+            .compactMap { NSRunningApplication(processIdentifier: $0) }
+            .first { $0.activationPolicy == .regular }
+        if let owner, owner != NSRunningApplication.current {
+            owner.activate()
+            return
+        }
+        activePane?.navigate(to: session.directory)
+    }
 
     /// Sidebar action: point the tab's shell at a folder and focus the terminal.
     func openInTerminal(_ url: URL) {
@@ -529,6 +646,18 @@ final class AppState: ObservableObject {
 
     /// Sender is deliberately non-nil: SwiftTerm's `copy(_ sender: Any)` and
     /// friends take a non-optional sender.
+    /// ⌘A. The list's table, a terminal or a text field selects all of
+    /// itself; tiles are SwiftUI's and have no selectAll:, so their pane
+    /// marks every tile, unless the keyboard is somewhere else.
+    func selectAll() {
+        if let pane = activePane, pane.showsTiles, focusedTarget != .sidebar, focusedTarget != .tabBar,
+           !editKeysBelongToText, !viewerHasKeyboard {
+            pane.selection = Set(pane.entries.map(\.id))
+            return
+        }
+        forwardToResponder("selectAll:")
+    }
+
     func forwardToResponder(_ selector: String) {
         NSApp.sendAction(Selector((selector)), to: nil, from: NSApp)
     }
@@ -542,7 +671,7 @@ final class AppState: ObservableObject {
                 + " selection=\(activeTab?.terminal?.hasSelection ?? false)"
                 + " mouseReporting=\(activeTab?.terminal?.mouseReporting ?? false)"
                 + " responder=\(ownFirstResponder.map { "\(type(of: $0))" } ?? "none")")
-        if let terminal = activeTab?.terminal, activeTab?.terminalHasFocus == true {
+        if let terminal = activeTab?.focusedTerminal {
             // nothing selected: leave the clipboard alone rather than copying
             // the file pane's selection behind the user's back
             let copied = terminal.copySelection()
@@ -598,7 +727,7 @@ final class AppState: ObservableObject {
 
     /// ⌘V — clipboard paste in text contexts, paste files into the active pane.
     func smartPaste() {
-        if let terminal = activeTab?.terminal, activeTab?.terminalHasFocus == true {
+        if let terminal = activeTab?.focusedTerminal {
             terminal.pasteClipboard()
             return
         }
@@ -738,7 +867,7 @@ final class AppState: ObservableObject {
                 errorMessage = error.localizedDescription
             }
         }
-        if request.isNew { NSWorkspace.shared.open(final) }
+        if request.isNew { Opening.open(final) }
     }
 
     /// Cancelling the sheet for a just-created file means "never mind" — the
@@ -897,9 +1026,7 @@ final class AppState: ObservableObject {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
             "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
         ]
-        for string in candidates {
-            if let url = URL(string: string), NSWorkspace.shared.open(url) { return }
-        }
+        Opening.open(firstOf: candidates.compactMap(URL.init(string:)))
     }
 
     /// Unmount a volume from the sidebar, the way Finder's eject button does.

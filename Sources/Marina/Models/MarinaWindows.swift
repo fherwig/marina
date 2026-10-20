@@ -73,6 +73,28 @@ final class MarinaWindows {
     }
 }
 
+/// SwiftUI draws the menus' checkmarks when MarinaCommands' body runs, and
+/// that only runs for state it observes. The per-tab toggles — Panes Follow
+/// Terminal, Terminal Follows Panes, Mouse Reporting — live in the tab or its
+/// terminal, so their checkmarks stayed as first drawn: switching one off,
+/// from the menu or from Settings, left the ✓ (measured through AX). This is
+/// poked whenever what they show may have changed: one of them flipped,
+/// another tab or another window came forward.
+@MainActor
+final class MenuRefresh: ObservableObject {
+    static let shared = MenuRefresh()
+
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { MenuRefresh.shared.changed() }
+        }
+    }
+
+    func changed() { objectWillChange.send() }
+}
+
 /// Hands back the NSWindow a SwiftUI view landed in.
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: (NSWindow) -> Void

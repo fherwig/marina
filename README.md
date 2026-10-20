@@ -19,6 +19,14 @@ pictures, for someone working with AI sessions.
   Adding ⌘ moves between the units on screen the way a mouse would — ⌘← to the
   sidebar, ⌘↑ to the tab bar, ⌘↓ into the terminal. Every quick action is also
   in the right-click menu with its shortcut shown, and in the menu bar.
+- **Tiles** (⌘4) — a folder as pictures: each file's Quick Look preview
+  (the photo itself, a PDF's first page, a film's frame, a page of text) with
+  its name under it. The slider at the right of the path bar sets the size,
+  from many small tiles across to three or four big ones down a large screen
+  (⌥⌘+ / ⌥⌘− too). Each folder remembers whether it is tiles or a list. In
+  tiles the arrows move a cursor in all four directions and Space marks the
+  tile under it, so files far apart can be picked from the keyboard; ⌘Y is
+  Quick Look there. See [Tiles](#tiles).
 - **Newest first** — a file list opens sorted by date modified, latest at the
   top, folders grouped above files. Click a column header to sort a pane
   differently; it keeps that order as you move around.
@@ -67,11 +75,15 @@ pictures, for someone working with AI sessions.
   and asks first if something — a claude session, a build — is still running.
 - **Fold-down terminal per tab** (⌘`) — a real shell (your login shell) under
   the file panes. ⌥⌘` gives the terminal the whole tab; ⌥⌘J puts it under the
-  left pane only when a second pane or the viewer is open. The shortcut is the
-  key left of "1", bound by position rather than character — ⌘^ on a German
-  keyboard. Selected text stays selected while the program keeps drawing, so
-  ⌘C still finds it. Over a program that has asked for the mouse, ⇧-drag
-  selects text, and Terminal ▸ Mouse Reporting hands the mouse back for good.
+  left pane only when a second pane or the viewer is open, and Settings ▸
+  Panes ▸ Terminal per pane gives each of two file panes a terminal of its own.
+  Font, size and colours are in Settings ▸ Terminal. The
+  shortcut is the key left of "1", bound by position rather than character —
+  ⌘^ on a German keyboard. Selected text stays selected while the program
+  keeps drawing, so ⌘C still finds it. Over a program that has asked for the
+  mouse, ⇧-drag selects text, and Terminal ▸ Mouse Reporting hands the mouse
+  back for good. Programs in it can use the microphone — Claude Code's
+  `/voice` among them — once macOS has asked whether Marina may.
 - **Bidirectional cwd sync** — `cd` in the shell and the file pane follows.
   Navigate in the file pane and the shell follows too — but only while it sits
   idle at its prompt, so a running claude, editor or build is never interrupted.
@@ -94,19 +106,56 @@ pictures, for someone working with AI sessions.
   so, and the pane offers the Settings pane where you can grant it. The
   permission is tied to Marina's code signature, which is stable, so it is
   granted once and survives rebuilds.
-- **Claude Sessions section** — the sidebar also lists the working directory of
-  every Claude Code session running right now, so you can jump straight to the
-  one you were just in. It is a snapshot: press ⟳ in the section header (or
-  ⇧⌥⌘R) to take a new one. Sessions living in a tmux pane show that pane's
-  path and are marked with a split-pane icon; ones started straight from a
-  terminal show a terminal icon.
+- **Claude Sessions section** — the sidebar also lists every Claude Code
+  session running right now, by its working directory. Click one (or Return)
+  to open its folder — or, with Settings ▸ Sidebar ▸ Clicking a session ▸ Goes
+  to the session, to go to the session itself: a Marina tab already showing it is
+  brought to the front with its terminal focused; a tmux session opens in this
+  tab's terminal, on its own pane (a terminal already showing tmux switches
+  over; one busy with something else is left alone), and clicking a folder in
+  the sidebar afterwards detaches from it again; one started in another
+  terminal app brings that app forward. Right-click offers Go to Session and
+  Open Folder whatever the setting, and arrowing through the list previews
+  each folder in the pane. The list is a snapshot:
+  press ⟳ in the section header (or ⇧⌥⌘R) to take a new one. Sessions living
+  in a tmux pane show that pane's path and are marked with a split-pane icon;
+  ones started straight from a terminal show a terminal icon.
 - **Opened from anywhere** — `open -a Marina <folder>` opens that folder, or
   switches to the tab already showing it; `open -a Marina <file>` reveals the
   file, selected and scrolled into view. See
   [Opening Marina from somewhere else](#opening-marina-from-somewhere-else).
+- **Hold Space to talk** (Settings ▸ Voice), with one of two engines.
+  Claude Code's own `/voice` (the default): Marina leaves Space to the
+  program in the terminal. Or Whisper, through Marina: hold Space in any
+  terminal, whatever runs in it, or in one of Marina's text fields, and talk;
+  let go, and the words appear at the cursor, never sent on their own. A tap
+  still types a space, Esc cancels. Whisper turns speech into text on the
+  Mac, in a Python that has it (`pip install openai-whisper`, plus ffmpeg;
+  Marina finds a conda environment with it by itself), with the model to suit
+  the Mac: small keeps up on an M2, bigger ones want a faster Mac. Nothing
+  leaves the machine, and each recording is deleted once read. Where the
+  session dashboard's speech service runs, Marina dictates with its model
+  and loads none of its own, falling back on its own Whisper whenever the
+  service is not there.
+- **Settings** (⌘,) — for the choices where people work differently, in five
+  tabs. General: the text size, the folder new windows open in, and hidden
+  files shown in every pane. Panes: a terminal for each of two file panes, and
+  whether panes and terminal follow each other in new tabs. Terminal: font,
+  style, size and colours (white on black, black on white, or with the Mac's
+  appearance). Sidebar: leave out the Volumes or Claude Sessions section, and
+  what a click on a Claude session does. Voice: Claude Code's `/voice` or
+  Whisper for a held Space, and the Whisper it uses. Each option says
+  underneath what it does, a change applies to everything open at once, and every one starts out
+  as Marina always behaved.
+- **One text size for the whole app** (⌘+ / ⌘−) — file lists, sidebar, tabs,
+  terminal and the viewer's text grow and shrink together, in every window,
+  and the size is remembered. View ▸ Actual Size goes back, and Settings ▸
+  General picks a size from the list. Menus, the toolbar, PDFs and pictures
+  keep their own size.
 - **Form follows function** — system font, real file icons, hairline dividers,
   no decoration. Toolbar with back/forward/up, pane and terminal toggles, and a
-  **?** button showing the keyboard cheat sheet.
+  **?** button that opens the keyboard cheat sheet (⌃⌘H) in a panel beside the
+  window, which stays open while you work.
 
 ## Install
 
@@ -162,6 +211,14 @@ macOS 14 or later. Built and tested on Apple silicon; the Intel path is
 untested. Building needs the Xcode Command Line Tools
 (`xcode-select --install`) and nothing else — no Xcode, no package manager.
 
+The Command Line Tools lack two things Xcode has — the Metal compiler SwiftTerm
+uses for its shader, and, from the macOS 27 SDK on, the plugin behind SwiftUI's
+`@State` macro. `make` works round both on its own (`Support/clt-setup.sh`):
+SwiftTerm's shader is bundled as source instead of precompiled (SwiftTerm can
+compile it at run time, and Marina's terminal does not use it), and the build uses the newest SDK in the Command Line Tools
+without the macro (macOS 26.5 at present). The app still runs on macOS 14 and
+later. With Xcode selected, none of this applies.
+
 ## Build & run
 
 ```sh
@@ -191,12 +248,28 @@ differently; it keeps that order as you move around.
 | → | Descend into selected folder |
 | ←, ⌫ | Go to enclosing folder |
 | Return, ⌘O | Open (folder: navigate; file: default app) — double-click does the same |
-| Space | Quick Look; while it is open, ↑ / ↓ step to the previous / next file and the preview follows. Space or Esc closes it |
+| Space, ⌘Y | Quick Look; while it is open, ↑ / ↓ step to the previous / next file and the preview follows. Space or Esc closes it. In tiles Space marks, so there it is ⌘Y |
 | ⌘[ / ⌘] | Back / Forward |
 | ⇧⌘H | Home |
-| ⇧⌘. | Show/hide hidden files |
-| ⌃⌘H | Show/hide the keyboard cheat sheet |
+| ⇧⌘. | Show/hide hidden files in this pane (Settings ▸ General ▸ Show hidden files: in every pane) |
+| ⌘+ / ⌘− | Bigger / smaller text everywhere: lists, sidebar, tabs, terminal, the viewer's text. ⌘= works as ⌘+, so no Shift is needed on a US or Canadian keyboard. View ▸ Actual Size goes back |
+| ⌃⌘H | Show/hide the keyboard cheat sheet, in a panel of its own that floats beside Marina and stays open while you work (the toolbar's **?** does the same). It never takes the keyboard, and opens where you last put it |
 | Double-click | Open |
+
+### Tiles
+
+| Key | Action |
+|---|---|
+| ← → ↑ ↓ | Move the cursor from tile to tile; Home / End to the first / last |
+| Space | Mark the tile under the cursor, or unmark it. Copy, move, trash, open and the rest act on the marked tiles, or on the cursor's tile when none is marked |
+| ⇧ + arrow | Mark the tiles passed over |
+| Esc | Drop the marks |
+| ⌘A | Mark every tile |
+| Return | Open, or go into a folder |
+| ⌫ | Enclosing folder (← moves the cursor here) |
+| ⌘Y | Quick Look |
+| ⌥⌘+ / ⌥⌘− | Bigger / smaller tiles, in every pane (⌥⌘= works as ⌥⌘+); also the slider in the path bar |
+| Click, ⌘-click, ⇧-click | That tile; mark or unmark one more; mark the run from the cursor. Double-click opens. Drag the marked tiles out, or onto a folder tile |
 
 ### Moving between units (⌘ + arrow)
 
@@ -217,6 +290,7 @@ to the unit that is visually in that direction — what a mouse click would do.
 | Drag the divider | Resize the two panes |
 | ⌘3 | Viewer beside the file list — images, video, audio, PDF, text (again closes it). Drag across its text to select, then ⌘C copies the text; with an image showing, ⌘C copies file and picture |
 | ⌘1 | Back to single pane (closes a second pane or the viewer) |
+| ⌘4 | This folder as tiles, or back to the list (View ▸ Toggle Tiles, or right-click ▸ Show as Tiles). Each folder remembers |
 | ⇥ (Tab) | Switch pane |
 | ⌘M | Move selection to the other pane (window minimize is ⌥⌘M) |
 
@@ -239,6 +313,7 @@ to the unit that is visually in that direction — what a mouse click would do.
 | ⌃⌘S | Fold/unfold the sidebar |
 | ↑ / ↓ | Move between favourites — the pane follows immediately (file favourites just get selected) |
 | Return or → | Open the selected favourite (folder: navigate + focus pane; file: default app) |
+| Return or → (on a Claude session) | Open its folder — or, with Settings ▸ Sidebar ▸ Clicking a session ▸ Goes to the session, go to the session: its Marina tab, its tmux pane attached in this tab's terminal, or the terminal app it runs in. Right-click has both |
 | ⌘→ | Back to the file pane *without* changing folder (undo an accidental ⌘←) |
 | ← / → | Fold the section the selection is in / unfold a folded one |
 | Type a letter | Jump to the next favourite starting with it; press again to cycle through the rest |
@@ -256,26 +331,25 @@ to the unit that is visually in that direction — what a mouse click would do.
 | ⌘` | Toggle terminal: show + focus; hide when already focused. It is the key **left of "1"**, so on a German keyboard it is ⌘^ and on a US one ⌘` — the position is what is bound, not the character. On ISO keyboards the key beside the left shift (< on a German one) works too, so it holds even on keyboards that misreport their type |
 | ⌘↓ / ⌘↑ | Focus down into the terminal / climb back up to the file pane (⌘↑ again → tab bar) |
 | ⌥⌘` | Terminal full height (file panes fold away) — press again to restore (same key as above) |
+| Drag the bar above the terminal | Make the terminal taller or shorter. The bar runs the terminal's whole width, under the viewer too, and the first click grabs it even when Marina is in the background |
 | ⌘J | `cd` the shell to the active pane's folder |
 | Drag / double-click / triple-click | Select text, a word, a line. The selection stays while output keeps arriving — a working claude session redraws constantly — until you click elsewhere or type |
 | ⇧-drag | Select text **when a plain drag selects nothing** — the program running has asked for the mouse, so a plain drag belongs to it. Shift takes the mouse back for one drag; Terminal → Mouse Reporting takes it back for good |
 | ⌘C / ⌘V | Copy the selection / paste into the shell (⌘C with nothing selected leaves the clipboard alone) |
 | Right-click | Copy, Paste, Select All |
 | ⌘W on a busy tab | Asks first — "claude is still running in this tab's terminal" — with Cancel on Return. Closing the tab hangs the terminal up: the shell and what it started end with it, rather than living on unreachable |
-| ⌥⌘J | Terminal under the **left pane only**: with a second pane (⌘2) or the viewer (⌘3) open, the right side keeps the full height. Press again for the terminal across the whole width. Also in the Terminal menu and the terminal's right-click menu; remembered |
+| ⌥⌘J | Terminal under the **left pane only**: with a second pane (⌘2) or the viewer (⌘3) open, the right side keeps the full height. Press again for the terminal across the whole width. Also in the Terminal menu and the terminal's right-click menu; remembered. With Terminal per pane on, it is about the viewer alone |
+| Hold Space (Settings ▸ Voice ▸ Whisper) | Dictate into the terminal: talk, let go, and the words are typed at the prompt — no Return, so nothing runs until you press it. A tap types a space (as the key comes up); Esc while listening cancels. The same in Marina's text fields, such as rename |
+| Settings ▸ Panes ▸ Terminal per pane | Off (default): one terminal per tab. On: with two file panes, each folds down its own terminal under it — ⌘`, ⌘↓, ⌥⌘` and ⌘J act on the active pane's, each follows its own pane, and each has its own grip. Closing the second pane (⌘1) or turning this off hides the right-hand terminal without ending what runs in it; it is back with the second pane |
 | Terminal → Mouse Reporting | On (default): programs in the terminal get the mouse, and ⇧-drag selects. Off: a plain drag selects and those programs lose their mouse. The setting sticks |
-| Terminal → Panes Follow Terminal | The panes follow the shell's cd (on by default) |
-| Terminal → Terminal Follows Panes | The shell cds after the panes — but only while it sits idle at its prompt, so a running claude, editor or build is never interrupted, and a half-typed command is never wiped (on by default) |
+| Terminal → Panes Follow Terminal | The panes follow the shell's cd, in this tab (on by default; Settings ▸ Panes sets how every tab starts) |
+| Terminal → Terminal Follows Panes | The shell cds after the panes — but only while it sits idle at its prompt, so a running claude, editor or build is never interrupted, and a half-typed command is never wiped. In this tab (on by default; Settings ▸ Panes sets how every tab starts) |
 
-Text is plain white on black in SF Mono medium — the system text colour SwiftTerm
-uses by default is only ~85% white, which reads washed out. The font can be
-changed without rebuilding (restart Marina after):
-
-```sh
-defaults write org.fherwig.marina marina.terminalFont Menlo-Bold   # heaviest
-defaults write org.fherwig.marina marina.terminalFontSize 13
-defaults delete org.fherwig.marina marina.terminalFont             # back to SF Mono
-```
+Text is plain white on black in SF Mono medium unless Settings ▸ Terminal says
+otherwise — the system text colour SwiftTerm uses by default is only ~85% white,
+which reads washed out. There you pick any font on the Mac whose letters are all
+one width, its style and size, and the colours: white on black, black on white,
+or with the Mac's light and dark appearance. Open terminals change at once.
 
 ### File operations
 Dragging follows Finder's rule: **within one disk a drag moves, onto another
@@ -376,3 +450,19 @@ the list of active session directories.
 - Session restore (tabs, panes, terminal cwds)
 - Copy/move conflict resolution (currently refuses to overwrite)
 - Per-tab terminal profiles (e.g. auto-run a command on open)
+
+## Licence
+
+Copyright © 2026 Falk Herwig and contributors.
+
+Marina is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. It is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+Marina includes [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (MIT)
+and, in the viewer, markdown-it, KaTeX and Prism (MIT) and SheetJS (Apache
+2.0) — see `Support/Viewer/vendor/PROVENANCE.md`. Their licences, and this
+one, ship inside the app under `Contents/Resources`.

@@ -16,13 +16,23 @@ PKG = $(BUILD_DIR)/$(APP_NAME)-$(VERSION).pkg
 # Create it once with Support/make-signing-cert.sh; without it, ad-hoc is used.
 SIGN_ID = Marina Dev Signing
 
-.PHONY: build release app run pkg clean
+.PHONY: toolchain build release app install run pkg clean
 
-build:
-	swift build
+# With only the Command Line Tools, Support/clt-setup.sh works round what they
+# lack (the Metal compiler, SwiftUI's macro plugins) and leaves the environment
+# the build needs in .build/clt-env and .build/clt-flags. With Xcode it does
+# nothing.
+CLT_ENV = env $$(cat .build/clt-env)
+CLT_FLAGS = $$(cat .build/clt-flags)
 
-release:
-	swift build -c release
+toolchain:
+	@Support/clt-setup.sh
+
+build: toolchain
+	$(CLT_ENV) swift build $(CLT_FLAGS)
+
+release: toolchain
+	$(CLT_ENV) swift build -c release $(CLT_FLAGS)
 
 app: release
 	@# The bundle is assembled and signed outside the project: Desktop is a
@@ -39,6 +49,13 @@ app: release
 	cat Support/Marina.icns > $(STAGE)/Contents/Resources/Marina.icns
 	@# the ⌘3 viewer's markdown and code page — see Support/Viewer/vendor/PROVENANCE.md
 	cp -RX Support/Viewer $(STAGE)/Contents/Resources/Viewer
+	@# hold-Space dictation's Whisper worker — see Support/Dictation
+	cp -X Support/Dictation/dictate_worker.py $(STAGE)/Contents/Resources/dictate_worker.py
+	@# GPL 3.0 says the licence travels with the program, and SwiftTerm's MIT
+	@# licence asks the same of its notice; the viewer's travel in Viewer/vendor
+	cp -X LICENSE $(STAGE)/Contents/Resources/LICENSE
+	mkdir -p $(STAGE)/Contents/Resources/Licenses
+	cp -X .build/checkouts/SwiftTerm/LICENSE $(STAGE)/Contents/Resources/Licenses/SwiftTerm-LICENSE.txt
 	@find $(STAGE) -exec xattr -c {} \; 2>/dev/null; true
 	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_ID)"; then \
 		echo 'codesign --force --sign "$(SIGN_ID)" $(STAGE)'; \
@@ -94,6 +111,29 @@ icon:
 	iconutil -c icns /tmp/Marina.iconset -o Support/Marina.icns
 	@echo "Regenerated Support/Marina.icns"
 	@echo "Built $(APP)"
+
+# This machine's copy in ~/Applications, swapped in whole: a running Marina
+# carries on with the copy it started from until it restarts. The copy it
+# replaces is taken out of LaunchServices and deleted. Moved aside and left,
+# such copies stayed registered under Marina's bundle id, and `open -a Marina`
+# can pick any of them (2026-10-15: six were found, 0.3 to 0.5).
+INSTALLED = $(HOME)/Applications/$(APP_NAME).app
+LSREGISTER = /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+install: app
+	rm -rf /tmp/marina-install $(HOME)/Applications/.$(APP_NAME)-new.app /tmp/marina-replaced.app
+	mkdir -p /tmp/marina-install $(HOME)/Applications
+	ditto --noextattr --norsrc $(APP) /tmp/marina-install/$(APP_NAME).app
+	codesign --verify --strict /tmp/marina-install/$(APP_NAME).app
+	ditto /tmp/marina-install/$(APP_NAME).app $(HOME)/Applications/.$(APP_NAME)-new.app
+	codesign --verify --strict $(HOME)/Applications/.$(APP_NAME)-new.app
+	@if [ -d "$(INSTALLED)" ]; then \
+		mv "$(INSTALLED)" /tmp/marina-replaced.app && \
+		$(LSREGISTER) -u /tmp/marina-replaced.app; \
+	fi
+	mv $(HOME)/Applications/.$(APP_NAME)-new.app "$(INSTALLED)"
+	$(LSREGISTER) -f "$(INSTALLED)"
+	rm -rf /tmp/marina-replaced.app /tmp/marina-install
+	@echo "Installed $(INSTALLED) ($(VERSION))"
 
 run: app
 	open $(APP)

@@ -6,3 +6,4 @@ build/
 .review/
 # the unannotated shots; make guide re-creates them
 docs/images/raw/
+__pycache__/

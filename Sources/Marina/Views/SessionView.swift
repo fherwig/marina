@@ -6,22 +6,31 @@ struct SessionView: View {
     var focus: FocusState<FocusTarget?>.Binding
     /// ⌥⌘J — with a second pane or the viewer open, the terminal sits under
     /// the left file pane only and the right side keeps the full height. One
-    /// setting for every tab and window: it is a preference about how you work,
-    /// not about a particular folder.
+    /// setting for every tab and window: it is a preference about how you
+    /// work, not about a particular folder. With Terminal per Pane on, two
+    /// file panes have a terminal each, and this is about the viewer alone.
     @AppStorage("marina.terminalLeftOnly") private var terminalLeftOnly = false
+    /// Settings ▸ Terminal per Pane; observed so the layout follows a change
+    /// at once. TabState reads the same value through Preferences.
+    @AppStorage(Preferences.terminalPerPaneKey) private var terminalPerPane = false
 
     private var split: Bool { tab.panes.count > 1 || tab.viewerVisible }
 
-    /// Not a VSplitView: its divider is a one-pixel line to aim at, and the
-    /// file pane already ends in a bar. The terminal takes a fixed slice, the
-    /// panes take the rest, and that bottom bar is the grip — see
-    /// FilePaneView.statusBar.
+    /// Not a VSplitView: its divider is a one-pixel line to aim at. The
+    /// terminal takes a fixed slice, the panes take the rest, and a bar between
+    /// them is the grip — see TerminalGrip.
     var body: some View {
         GeometryReader { geo in
             Group {
-                if split, terminalLeftOnly, tab.terminalVisible, !tab.terminalMaximized,
-                   let session = tab.terminal {
-                    leftOnly(session: session, size: geo.size)
+                if let maximized = maximizedSecond {
+                    // the right pane's terminal takes the whole tab
+                    TerminalHostView(session: maximized)
+                } else if tab.terminalPerPane || (split && terminalLeftOnly), !mainMaximized {
+                    // whether or not a terminal is showing yet: switching to
+                    // a different layout as one opens rebuilt both panes, and
+                    // a rebuilt pane takes the keyboard back from the terminal
+                    // that just opened
+                    columns(size: geo.size)
                 } else {
                     acrossTheWidth(size: geo.size)
                 }
@@ -35,10 +44,11 @@ struct SessionView: View {
     private func acrossTheWidth(size: CGSize) -> some View {
         VStack(spacing: 0) {
             if !(tab.terminalVisible && tab.terminalMaximized) {
-                panes(width: size.width)
+                panes(width: size.width, terminalBelow: tab.terminalVisible && tab.terminal != nil)
                     .frame(maxHeight: .infinity)
             }
             if tab.terminalVisible, let session = tab.terminal {
+                if !tab.terminalMaximized { TerminalGrip(tab: tab) }
                 TerminalHostView(session: session)
                     .frame(maxWidth: .infinity)
                     .frame(height: terminalHeight(total: size.height))
@@ -46,29 +56,56 @@ struct SessionView: View {
         }
     }
 
-    /// The left column is file pane over terminal; the right one — second pane
-    /// or viewer — runs the full height. The divider still sizes the columns,
-    /// and the terminal grip is the left pane's bottom bar as before.
-    private func leftOnly(session: TerminalSession, size: CGSize) -> some View {
+    private func showing(_ slot: TabState.Slot) -> Bool {
+        tab.isVisible(slot) && tab.session(slot) != nil
+    }
+
+    private var mainMaximized: Bool { tab.terminalVisible && tab.terminalMaximized }
+
+    private var maximizedSecond: TerminalSession? {
+        guard tab.terminalPerPane, tab.secondTerminalVisible, tab.secondTerminalMaximized else { return nil }
+        return tab.secondTerminal
+    }
+
+    /// Two columns, each running the full height: the left pane over its
+    /// terminal, and on the right the viewer, or the second pane — over its
+    /// own terminal with Terminal per Pane on. The divider still sizes the
+    /// columns, each terminal has its grip above it, and the two terminals
+    /// share one height so their prompts line up.
+    private func columns(size: CGSize) -> some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus)
+                FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus,
+                             terminalBelow: showing(.main))
                     .frame(maxHeight: .infinity)
-                TerminalHostView(session: session)
-                    .frame(height: terminalHeight(total: size.height))
+                if showing(.main), let session = tab.terminal {
+                    TerminalGrip(tab: tab)
+                    TerminalHostView(session: session)
+                        .frame(height: terminalHeight(total: size.height))
+                }
             }
             .frame(width: tab.paneWidth(total: size.width))
             PaneDivider(tab: tab, total: size.width)
-            rightSide
-                .frame(maxWidth: .infinity)
+            VStack(spacing: 0) {
+                let second = tab.terminalPerPane && showing(.second) ? tab.secondTerminal : nil
+                rightSide(terminalBelow: second != nil)
+                    .frame(maxHeight: .infinity)
+                if let second {
+                    TerminalGrip(tab: tab)
+                    TerminalHostView(session: second)
+                        .frame(height: terminalHeight(total: size.height))
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 
     /// Whatever shares the window with the left pane.
     @ViewBuilder
-    private var rightSide: some View {
+    private func rightSide(terminalBelow: Bool) -> some View {
         if tab.panes.count > 1 {
-            FilePaneView(tab: tab, pane: tab.panes[1], paneIndex: 1, focus: focus)
+            FilePaneView(tab: tab, pane: tab.panes[1], paneIndex: 1, focus: focus,
+                         terminalBelow: terminalBelow)
         } else if tab.viewerVisible {
             ViewerPane(tab: tab, pane: tab.panes[0])
         }
@@ -79,17 +116,19 @@ struct SessionView: View {
     /// rather than half. The split is ours — equal until the divider is
     /// dragged, and equal again on the next ⌘2.
     @ViewBuilder
-    private func panes(width: CGFloat) -> some View {
+    private func panes(width: CGFloat, terminalBelow: Bool) -> some View {
         if split {
             HStack(spacing: 0) {
-                FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus)
+                FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus,
+                             terminalBelow: terminalBelow)
                     .frame(width: tab.paneWidth(total: width))
                 PaneDivider(tab: tab, total: width)
-                rightSide
+                rightSide(terminalBelow: terminalBelow)
                     .frame(maxWidth: .infinity)
             }
         } else {
-            FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus)
+            FilePaneView(tab: tab, pane: tab.panes[0], paneIndex: 0, focus: focus,
+                         terminalBelow: terminalBelow)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -98,7 +137,7 @@ struct SessionView: View {
     /// allows and the file area keeps at least its minimum, until a drag on the
     /// grip says otherwise.
     private func terminalHeight(total: CGFloat) -> CGFloat {
-        guard let session = tab.terminal else { return 0 }
+        guard let session = tab.terminal ?? tab.secondTerminal else { return 0 }
         if tab.terminalMaximized { return total }
         let room = max(TabState.minTerminalHeight, total - TabState.minFilesHeight)
         let wanted = tab.terminalHeight ?? session.defaultHeight

@@ -22,6 +22,12 @@ struct SidebarView: View {
     @State private var dropTargeted = false
     @AppStorage("marina.claudeSectionCollapsed") private var claudeCollapsed = false
     @AppStorage("marina.volumesSectionCollapsed") private var volumesCollapsed = false
+    /// Settings ▸ Sidebar: the two generated sections can be left out.
+    @AppStorage(Preferences.showVolumesKey) private var showVolumes = true
+    @AppStorage(Preferences.showClaudeSessionsKey) private var showClaudeSessions = true
+    /// Settings ▸ Sidebar: what a click or Return on a Claude session does.
+    @AppStorage(Preferences.sessionClickKey) private var sessionClick = Preferences.SessionClick.openFolder.rawValue
+    @Environment(\.uiZoom) private var zoom
     @State private var typeAhead = TypeAhead()
     @State private var drag: DragState?
     @State private var target: DropTarget?
@@ -75,13 +81,17 @@ struct SidebarView: View {
                 out.append(.item(section: section.id, position: i, url: url))
             }
         }
-        out.append(.volumesHeader)
-        if !volumesCollapsed {
-            for volume in app.volumes { out.append(.volume(volume)) }
+        if showVolumes {
+            out.append(.volumesHeader)
+            if !volumesCollapsed {
+                for volume in app.volumes { out.append(.volume(volume)) }
+            }
         }
-        out.append(.claudeHeader)
-        if !claudeCollapsed {
-            for session in app.claudeSessions { out.append(.claude(session)) }
+        if showClaudeSessions {
+            out.append(.claudeHeader)
+            if !claudeCollapsed {
+                for session in app.claudeSessions { out.append(.claude(session)) }
+            }
         }
         return out
     }
@@ -213,12 +223,12 @@ struct SidebarView: View {
         let selected = i == index && selectable(.header(section))
         HStack(spacing: 4) {
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+                .uiFont(9, weight: .semibold)
                 .rotationEffect(.degrees(section.collapsed ? 0 : 90))
                 .foregroundStyle(.secondary)
-                .frame(width: 10)
+                .frame(width: 10 * zoom)
             Text(section.name)
-                .font(.system(size: 11, weight: .semibold))
+                .uiFont(11, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -254,11 +264,11 @@ struct SidebarView: View {
         let dragged = drag?.row == i
         HStack(spacing: 7) {
             Image(systemName: symbol(for: url))
-                .font(.system(size: 13))
-                .frame(width: 18)
+                .uiFont(13)
+                .frame(width: 18 * zoom)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(Color.accentColor))
             Text(displayName(for: url))
-                .font(.system(size: 13))
+                .uiFont(13)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -273,6 +283,7 @@ struct SidebarView: View {
         )
         .opacity(dragged ? 0.35 : 1)
         .contentShape(Rectangle())
+        .help(url.path)
         .measured(at: i, space: Self.space)
         .insertionLine(insertionEdge(at: i))
         .onTapGesture {
@@ -315,12 +326,12 @@ struct SidebarView: View {
         let selected = i == index && selectable(.volumesHeader)
         HStack(spacing: 4) {
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+                .uiFont(9, weight: .semibold)
                 .rotationEffect(.degrees(volumesCollapsed ? 0 : 90))
                 .foregroundStyle(.secondary)
-                .frame(width: 10)
+                .frame(width: 10 * zoom)
             Text("Volumes")
-                .font(.system(size: 11, weight: .semibold))
+                .uiFont(11, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -353,16 +364,16 @@ struct SidebarView: View {
         let selected = i == index
         HStack(spacing: 7) {
             Image(systemName: volume.symbol)
-                .font(.system(size: 12))
-                .frame(width: 18)
+                .uiFont(12)
+                .frame(width: 18 * zoom)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(Color.accentColor))
             Text(volume.name)
-                .font(.system(size: 13))
+                .uiFont(13)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 .lineLimit(1)
             if let caption = volume.caption {
                 Text(caption)
-                    .font(.system(size: 10))
+                    .uiFont(10)
                     .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
@@ -413,12 +424,12 @@ struct SidebarView: View {
         let selected = i == index && selectable(.claudeHeader)
         HStack(spacing: 4) {
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+                .uiFont(9, weight: .semibold)
                 .rotationEffect(.degrees(claudeCollapsed ? 0 : 90))
                 .foregroundStyle(.secondary)
-                .frame(width: 10)
+                .frame(width: 10 * zoom)
             Text("Claude Sessions")
-                .font(.system(size: 11, weight: .semibold))
+                .uiFont(11, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 4)
@@ -429,11 +440,11 @@ struct SidebarView: View {
                     ProgressView()
                         .controlSize(.small)
                         .scaleEffect(0.55)
-                        .frame(width: 12, height: 12)
+                        .frame(width: 12 * zoom, height: 12 * zoom)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 12, height: 12)
+                        .uiFont(10, weight: .semibold)
+                        .frame(width: 12 * zoom, height: 12 * zoom)
                 }
             }
             .buttonStyle(.plain)
@@ -469,16 +480,16 @@ struct SidebarView: View {
         HStack(spacing: 7) {
             // a pane in a tmux session, or a bare terminal window
             Image(systemName: session.isBare ? "terminal" : "rectangle.split.2x1")
-                .font(.system(size: 12))
-                .frame(width: 18)
+                .uiFont(12)
+                .frame(width: 18 * zoom)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(Color.accentColor))
             Text(session.name)
-                .font(.system(size: 13))
+                .uiFont(13)
                 .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 .lineLimit(1)
             if let caption = session.caption {
                 Text(caption)
-                    .font(.system(size: 10))
+                    .uiFont(10)
                     .foregroundStyle(selected && isFocused ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
@@ -494,13 +505,15 @@ struct SidebarView: View {
         )
         .contentShape(Rectangle())
         .measured(at: i, space: Self.space)
-        .help(session.directory.path)
+        .help(sessionClick == Preferences.SessionClick.goToSession.rawValue
+              ? "Go to this session — \(session.directory.path)" : session.directory.path)
         .onTapGesture {
             index = i
-            openFavourite(session.directory, focusPane: false)
+            openSession(session, focusPane: false)
         }
         .contextMenu {
-            Button("Open") { openFavourite(session.directory, focusPane: true) }
+            Button("Go to Session") { app.goToSession(session) }
+            Button("Open Folder") { openFavourite(session.directory, focusPane: true) }
             Button("Open in Second Pane") { app.activeTab?.openInSecondPane(session.directory) }
             Button("Open in New Tab") { app.newTab(at: session.directory) }
             Button("Open in Marina Terminal") { app.openInTerminal(session.directory) }
@@ -523,7 +536,7 @@ struct SidebarView: View {
             Button("Open in New Tab") { app.newTab(at: url) }
             Button("Open in Marina Terminal") { app.openInTerminal(url) }
         } else {
-            Button("Open") { NSWorkspace.shared.open(url) }
+            Button("Open") { Opening.open(url) }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         Divider()
@@ -590,7 +603,7 @@ struct SidebarView: View {
                 add("Open in New Tab") { app.newTab(at: url) }
                 add("Open in Marina Terminal") { app.openInTerminal(url) }
             } else {
-                add("Open") { NSWorkspace.shared.open(url) }
+                add("Open") { Opening.open(url) }
                 add("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             }
             menu.addItem(.separator())
@@ -634,7 +647,8 @@ struct SidebarView: View {
 
         case .claude(let session):
             let url = session.directory
-            add("Open") { openFavourite(url, focusPane: true) }
+            add("Go to Session") { app.goToSession(session) }
+            add("Open Folder") { openFavourite(url, focusPane: true) }
             add("Open in Second Pane") { app.activeTab?.openInSecondPane(url) }
             add("Open in New Tab") { app.newTab(at: url) }
             add("Open in Marina Terminal") { app.openInTerminal(url) }
@@ -685,7 +699,7 @@ struct SidebarView: View {
             claudeCollapsed = false
             normalise()
         case .claude(let session):
-            openFavourite(session.directory, focusPane: true)
+            openSession(session, focusPane: true)
         case .volumesHeader:
             guard volumesCollapsed else { return }
             volumesCollapsed = false
@@ -769,12 +783,25 @@ struct SidebarView: View {
     /// files (and app bundles) open in their default app.
     private func openFavourite(_ url: URL, focusPane: Bool) {
         if isNavigableDir(url) {
+            // going to a folder from a tab that was showing a tmux session
+            // leaves the session: detach, and close that terminal
+            app.activeTab?.leaveTmuxSession()
             navigate(to: url)
             if focusPane, let tab = app.activeTab {
                 app.requestFocus(.pane(tab.activePane.id))
             }
         } else {
-            NSWorkspace.shared.open(url)
+            Opening.open(url)
+        }
+    }
+
+    /// Click / Return / → on a Claude session: its folder, or — Settings ▸
+    /// Claude Sessions — the session itself. Both are in its menus either way.
+    private func openSession(_ session: ClaudeSession, focusPane: Bool) {
+        if Preferences.sessionClick == .goToSession {
+            app.goToSession(session)
+        } else {
+            openFavourite(session.directory, focusPane: focusPane)
         }
     }
 
